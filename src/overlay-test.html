@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Simple Overlay Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            font-family: Arial, sans-serif;
+            border: 2px solid red;
+        }
+        
+        .test-container {
+            background: rgba(50, 50, 50, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid white;
+        }
+        
+        input {
+            width: 100%;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid white;
+            color: white;
+            border-radius: 4px;
+        }
+        
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 255, 0, 0.2);
+            border: 1px solid green;
+            border-radius: 4px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h3>🧪 OVERLAY TEST</h3>
+        <p>If you can see this clearly, the overlay transparency is working!</p>
+        <input type="text" id="testInput" placeholder="Type 'test' and press Enter..." />
+        <div class="result" id="testResult">
+            <h4>✅ SUCCESS!</h4>
+            <p>Overlay content display is working correctly.</p>
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        document.getElementById('testInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const input = e.target.value.trim();
+                if (input === 'test') {
+                    document.getElementById('testResult').style.display = 'block';
+                    console.log('✅ Test overlay content is visible!');
+                } else if (input === 'close') {
+                    window.close();
+                }
+                e.target.value = '';
+            }
+        });
+        
+        // Auto-focus input
+        window.addEventListener('load', () => {
+            document.getElementById('testInput').focus();
+            console.log('🧪 Simple overlay test loaded');
+        });
+        
+        // Listen for focus events
+        ipcRenderer.on('focus-input', () => {
+            document.getElementById('testInput').focus();
+        });
+    </script>
+</body>
+</html>

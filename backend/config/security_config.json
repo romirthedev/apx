@@ -1,0 +1,129 @@
+{
+  "security": {
+    "confirmation_required": {
+      "file_operations": {
+        "delete": true,
+        "move_to_trash": false,
+        "modify_system_files": true,
+        "create_executable": true
+      },
+      "system_operations": {
+        "admin_commands": true,
+        "network_access": false,
+        "app_control": false,
+        "automation_scripts": true
+      },
+      "dangerous_patterns": [
+        "rm -rf",
+        "sudo rm",
+        "format",
+        "del /f",
+        "chmod 777",
+        "chown",
+        "passwd",
+        "systemctl",
+        "launchctl"
+      ]
+    },
+    "sandboxing": {
+      "enabled": true,
+      "allowed_directories": [
+        "~/Desktop",
+        "~/Documents", 
+        "~/Downloads",
+        "/tmp",
+        "/var/tmp"
+      ],
+      "blocked_directories": [
+        "/System",
+        "/usr/bin",
+        "/bin",
+        "/sbin",
+        "/etc",
+        "/var/root",
+        "~/.ssh",
+        "~/Library/Keychains"
+      ]
+    },
+    "logging": {
+      "log_all_commands": true,
+      "log_file_operations": true,
+      "log_network_requests": true,
+      "log_app_interactions": true,
+      "retention_days": 30,
+      "max_log_size_mb": 100
+    },
+    "rate_limiting": {
+      "enabled": true,
+      "max_commands_per_minute": 60,
+      "max_file_operations_per_minute": 30,
+      "max_network_requests_per_minute": 100
+    },
+    "permissions": {
+      "require_full_disk_access": true,
+      "require_accessibility": true,
+      "require_screen_recording": true,
+      "require_automation": true,
+      "graceful_degradation": true
+    },
+    "ai_safety": {
+      "content_filtering": true,
+      "prompt_injection_detection": true,
+      "command_validation": true,
+      "max_ai_response_length": 5000,
+      "blocked_ai_commands": [
+        "execute_arbitrary_code",
+        "modify_security_settings",
+        "disable_logging",
+        "bypass_confirmations"
+      ]
+    }
+  },
+  "features": {
+    "file_management": {
+      "enabled": true,
+      "max_file_size_mb": 1000,
+      "allowed_extensions": ["txt", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "jpg", "png", "gif", "mp4", "mov"],
+      "backup_before_modify": true
+    },
+    "app_control": {
+      "enabled": true,
+      "allowed_apps": [],
+      "blocked_apps": ["Activity Monitor", "Keychain Access", "Terminal"],
+      "require_confirmation": true
+    },
+    "web_automation": {
+      "enabled": true,
+      "allowed_domains": [],
+      "blocked_domains": ["banking", "financial", "password"],
+      "user_agent": "Cluely AI Assistant/1.0"
+    },
+    "system_info": {
+      "enabled": true,
+      "collect_usage_stats": true,
+      "collect_app_list": true,
+      "collect_network_info": false
+    }
+  },
+  "ui": {
+    "overlay": {
+      "default_position": "top-right",
+      "auto_hide_delay_ms": 5000,
+      "max_width": 400,
+      "max_height": 600,
+      "transparency": 0.95
+    },
+    "confirmations": {
+      "show_detailed_warnings": true,
+      "require_explicit_confirmation": true,
+      "timeout_seconds": 30,
+      "default_to_deny": true
+    }
+  },
+  "development": {
+    "debug_mode": false,
+    "verbose_logging": false,
+    "enable_testing_commands": false,
+    "mock_dangerous_operations": true
+  }
+}

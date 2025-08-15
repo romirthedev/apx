@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Cluely AI Assistant</title>
+  <style>
+    html {
+      width: 100%;
+      height: 100%;
+      background: none;
+    }
+    
+    body {
+      margin: 0; 
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: none;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    /* Input container - always visible */
+    #input-container {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(30, 30, 30, 0.95);
+      backdrop-filter: blur(20px);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      min-width: 500px;
+      z-index: 10000;
+    }
+    
+    .icon {
+      font-size: 24px;
+      color: #007acc;
+    }
+    
+    #command-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #ffffff;
+      font-size: 16px;
+      font-weight: 400;
+    }
+    
+    #command-input::placeholder {
+      color: #888888;
+    }
+    
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4caf50;
+      animation: pulse 2s infinite;
+    }
+    
+    .status-indicator.thinking {
+      background: #ff9800;
+      animation: thinking 1s infinite;
+    }
+    
+    .status-indicator.error {
+      background: #f44336;
+      animation: none;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+    
+    @keyframes thinking {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+      100% { transform: scale(1); }
+    }
+    
+    /* Response overlay */
+    #response-overlay {
+      position: fixed;
+      top: 0; 
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0.3s;
+      z-index: 9998;
+      backdrop-filter: blur(3px);
+    }
+    
+    #response-overlay.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+    
+    #response-box {
+      position: absolute;
+      top: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 700px;
+      max-height: 70vh;
+      overflow-y: auto;
+      background: rgba(45, 45, 45, 0.95);
+      color: #fff;
+      padding: 25px;
+      box-sizing: border-box;
+      font-size: 15px;
+      line-height: 1.6;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(20px);
+    }
+    
+    #response-box::-webkit-scrollbar {
+      width: 8px;
+    }
+    
+    #response-box::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 4px;
+    }
+    
+    #response-box::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 4px;
+    }
+    
+    /* Response styling */
+    .ai-response {
+      border-left: 3px solid #9c27b0;
+      background: rgba(156, 39, 176, 0.1);
+    }
+    
+    .ai-response::before {
+      content: "🤖 AI Response";
+      display: block;
+      font-size: 12px;
+      color: #9c27b0;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+    
+    .success-response {
+      border-left: 3px solid #4caf50;
+      background: rgba(76, 175, 80, 0.1);
+    }
+    
+    .error-response {
+      border-left: 3px solid #f44336;
+      background: rgba(244, 67, 54, 0.1);
+    }
+    
+    pre {
+      background: rgba(40, 40, 40, 0.95);
+      color: #f0f0f0;
+      padding: 15px;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      margin: 1em 0;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    code {
+      font-family: 'Fira Code', Consolas, 'Courier New', monospace;
+      background: rgba(60, 60, 60, 0.95);
+      color: #fff;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    
+    .status-message {
+      text-align: center;
+      color: #007acc;
+      font-style: italic;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="input-container">
+    <div class="icon">🧠</div>
+    <input 
+      type="text" 
+      id="command-input"
+      placeholder="Ask me anything..."
+      autocomplete="off"
+      spellcheck="false"
+    >
+    <div class="status-indicator" id="status-indicator"></div>
+  </div>
+
+  <div id="response-overlay">
+    <div id="response-box" id="response-content"></div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    
+    const commandInput = document.getElementById('command-input');
+    const statusIndicator = document.getElementById('status-indicator');
+    const responseOverlay = document.getElementById('response-overlay');
+    const responseBox = document.getElementById('response-box');
+    
+    let isProcessing = false;
+    let autoHideTimeout = null;
+    
+    // Focus input when overlay is shown
+    ipcRenderer.on('focus-input', () => {
+      commandInput.focus();
+      commandInput.select();
+    });
+    
+    // Handle command submission
+    commandInput.addEventListener('keydown', async (event) => {
+      if (event.key === 'Enter' && !isProcessing) {
+        const command = commandInput.value.trim();
+        if (command) {
+          // Test command for debugging
+          if (command === 'test') {
+            showResponse('🎉 TEST SUCCESSFUL!\n\nCluely overlay is working correctly!\n\nYou can now:\n• Ask questions\n• Request file operations\n• Get AI assistance\n• Control system functions\n\nTry: "help" or "what time is it"', 'success');
+            commandInput.value = '';
+            return;
+          }
+          
+          await processCommand(command);
+        }
+      } else if (event.key === 'Escape') {
+        hideOverlay();
+      }
+    });
+    
+    async function processCommand(command) {
+      if (isProcessing) return;
+      
+      console.log('🚀 Processing command:', command);
+      isProcessing = true;
+      setStatus('thinking');
+      
+      try {
+        showResponse('🤔 Thinking...', 'status');
+        
+        console.log('📡 Sending command to backend...');
+        const response = await ipcRenderer.invoke('send-command', command);
+        console.log('📨 Backend response received:', response);
+        
+        if (response.success) {
+          setStatus('success');
+          
+          const resultText = response.result || 'Command completed successfully';
+          const isAiResponse = response.is_ai_response || false;
+          const responseType = isAiResponse ? 'ai' : 'success';
+          
+          console.log('✅ Showing successful response');
+          showResponse(resultText, responseType);
+          
+          // Clear input
+          commandInput.value = '';
+          
+          // Set auto-hide timer
+          const hideDelay = isAiResponse ? 20000 : 15000;
+          autoHideTimeout = setTimeout(() => {
+            hideOverlay();
+          }, hideDelay);
+          
+        } else {
+          setStatus('error');
+          const errorMsg = response.error || response.result || 'Command failed';
+          showResponse(`❌ ${errorMsg}`, 'error');
+        }
+        
+      } catch (error) {
+        console.error('Command processing error:', error);
+        setStatus('error');
+        showResponse(`⚠️ Connection Error: ${error.message}\n\nPlease check if the backend service is running.`, 'error');
+      } finally {
+        isProcessing = false;
+        
+        // Reset status after 3 seconds
+        setTimeout(() => {
+          setStatus('ready');
+        }, 3000);
+      }
+    }
+    
+    function setStatus(status) {
+      statusIndicator.className = 'status-indicator';
+      if (status === 'thinking') {
+        statusIndicator.classList.add('thinking');
+      } else if (status === 'error') {
+        statusIndicator.classList.add('error');
+      }
+    }
+    
+    function showResponse(text, type = 'success') {
+      console.log('📝 Showing response:', { textLength: text.length, type });
+      
+      // Notify main process that we're showing a response
+      ipcRenderer.send('overlay-showing-response', true);
+      
+      // Apply styling based on type
+      responseBox.className = 'response-box';
+      if (type === 'ai') {
+        responseBox.classList.add('ai-response');
+      } else if (type === 'success') {
+        responseBox.classList.add('success-response');
+      } else if (type === 'error') {
+        responseBox.classList.add('error-response');
+      }
+      
+      // Set content (support basic markdown-like formatting)
+      responseBox.innerHTML = formatText(text);
+      
+      // Show overlay
+      responseOverlay.classList.add('visible');
+    }
+    
+    function formatText(text) {
+      // Basic formatting for better display
+      return text
+        .replace(/\n/g, '<br>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/`(.*?)`/g, '<code>$1</code>');
+    }
+    
+    function hideOverlay() {
+      console.log('🚪 Hiding overlay');
+      
+      // Clear auto-hide timeout
+      if (autoHideTimeout) {
+        clearTimeout(autoHideTimeout);
+        autoHideTimeout = null;
+      }
+      
+      // Hide response overlay
+      responseOverlay.classList.remove('visible');
+      
+      // Clear input
+      commandInput.value = '';
+      
+      // Notify main process
+      ipcRenderer.send('overlay-showing-response', false);
+      
+      // Close window after short delay
+      setTimeout(() => {
+        window.close();
+      }, 300);
+    }
+    
+    // Prevent auto-hide when interacting with overlay
+    document.addEventListener('click', (e) => {
+      if (responseOverlay.classList.contains('visible')) {
+        console.log('🖱️ Overlay clicked - preventing auto-hide');
+        if (autoHideTimeout) {
+          clearTimeout(autoHideTimeout);
+          autoHideTimeout = null;
+        }
+      }
+    });
+    
+    // Initialize
+    setStatus('ready');
+    commandInput.focus();
+    
+    // Debug: Test backend connection on startup
+    console.log('=== OVERLAY DEBUG INFO ===');
+    console.log('Backend URL should be: http://localhost:8888');
+    
+    // Test connection immediately
+    setTimeout(async () => {
+      console.log('🧪 Testing backend connection...');
+      try {
+        const testResponse = await ipcRenderer.invoke('send-command', 'connection test');
+        console.log('✅ Backend connection test result:', testResponse);
+      } catch (error) {
+        console.error('❌ Backend connection test failed:', error);
+      }
+    }, 1000);
+    
+    console.log('🧠 Cluely overlay initialized');
+  </script>
+</body>
+</html>

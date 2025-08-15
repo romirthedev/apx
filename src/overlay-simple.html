@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Cluely Overlay - Simple</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #1a1a1a;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            overflow: hidden;
+        }
+        
+        .container {
+            background: #2a2a2a;
+            border-radius: 10px;
+            padding: 20px;
+            border: 1px solid #444;
+        }
+        
+        .input-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .icon {
+            font-size: 20px;
+            color: #007acc;
+        }
+        
+        input {
+            flex: 1;
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 5px;
+            padding: 10px;
+            color: white;
+            font-size: 14px;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #007acc;
+        }
+        
+        .status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+        }
+        
+        .status.thinking {
+            background: #ff9800;
+            animation: pulse 1s infinite;
+        }
+        
+        .status.error {
+            background: #f44336;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .result {
+            background: #333;
+            border-radius: 5px;
+            padding: 15px;
+            border-left: 3px solid #007acc;
+            display: none;
+        }
+        
+        .result.show {
+            display: block;
+        }
+        
+        .result.success {
+            border-left-color: #4caf50;
+        }
+        
+        .result.error {
+            border-left-color: #f44336;
+        }
+        
+        .result.ai {
+            border-left-color: #9c27b0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="input-section">
+            <div class="icon">🧠</div>
+            <input type="text" id="commandInput" placeholder="Ask me anything..." autocomplete="off">
+            <div class="status" id="status"></div>
+        </div>
+        
+        <div class="result" id="result">
+            <div id="resultText"></div>
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        const input = document.getElementById('commandInput');
+        const status = document.getElementById('status');
+        const result = document.getElementById('result');
+        const resultText = document.getElementById('resultText');
+        
+        let isProcessing = false;
+        
+        // Focus input when shown
+        ipcRenderer.on('focus-input', () => {
+            input.focus();
+            input.select();
+        });
+        
+        // Handle input
+        input.addEventListener('keydown', async (event) => {
+            if (event.key === 'Enter' && !isProcessing) {
+                const command = input.value.trim();
+                if (command) {
+                    if (command === 'test') {
+                        showResult('🎉 TEST SUCCESSFUL! The overlay is working correctly.', 'success');
+                        return;
+                    }
+                    
+                    await processCommand(command);
+                }
+            } else if (event.key === 'Escape') {
+                window.close();
+            }
+        });
+        
+        async function processCommand(command) {
+            isProcessing = true;
+            setStatus('thinking');
+            showResult('Processing...', '');
+            
+            try {
+                const response = await ipcRenderer.invoke('send-command', command);
+                
+                if (response.success) {
+                    setStatus('success');
+                    const resultText = response.result || 'Command completed successfully';
+                    const isAI = response.is_ai_response || false;
+                    showResult(resultText, isAI ? 'ai' : 'success');
+                    
+                    // Clear input
+                    input.value = '';
+                    
+                    // Auto-hide after delay
+                    setTimeout(() => {
+                        window.close();
+                    }, 8000);
+                } else {
+                    setStatus('error');
+                    showResult(`❌ ${response.error || response.result || 'Command failed'}`, 'error');
+                }
+            } catch (error) {
+                setStatus('error');
+                showResult(`⚠️ Connection Error: ${error.message}`, 'error');
+            } finally {
+                isProcessing = false;
+                setTimeout(() => setStatus('ready'), 3000);
+            }
+        }
+        
+        function setStatus(state) {
+            status.className = 'status';
+            if (state === 'thinking') {
+                status.classList.add('thinking');
+            } else if (state === 'error') {
+                status.classList.add('error');
+            }
+        }
+        
+        function showResult(text, type) {
+            resultText.textContent = text;
+            result.className = 'result show';
+            if (type) {
+                result.classList.add(type);
+            }
+            
+            // Resize window to fit content
+            const height = Math.max(150, document.body.scrollHeight + 20);
+            ipcRenderer.send('resize-overlay', height);
+        }
+        
+        // Initialize
+        setStatus('ready');
+        window.addEventListener('load', () => {
+            input.focus();
+        });
+    </script>
+</body>
+</html>

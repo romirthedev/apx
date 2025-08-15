@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/**/__pycache__/
+
+# Electron
+dist/
+build/
+
+# Python
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.coverage
+.pytest_cache/
+
+# Logs
+*.log
+logs/
+action_log.json
+cluely.log
+
+# Environment variables
+.env
+.env.local
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Config files (may contain sensitive data)
+config.json
+~/.cluely/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+backend/cluely_scripts/
+
+# Package files
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.exe
+*.msi
+
+# Development
+debug.log
+test-results/
