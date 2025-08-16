@@ -1511,23 +1511,21 @@ Just tell me what you want to do in natural language!"""
             if site_query.startswith(('http://', 'https://')):
                 return self.plugins['web_controller'].browse_url(site_query)
             # Otherwise, use Gemini to interpret the request
-            if self.gemini_ai:
+            if self.gemini_ai and self.task_planner:
                 try:
-                    ai_response = self.gemini_ai.generate_response(
-                        f"Interpret the website request: {site_query}. Provide the full URL if available.",
-                        context,
-                        self.get_available_actions()
-                    )
-                    if ai_response.get('success'):
-                        url = ai_response['result']
-                        if re.match(r"^(?:http(s)?:\/\/)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]+$", url):
-                            return self._open_url_in_browser(url)
-                        else:
-                            return f"Could not find a valid URL for {site_query}"
-                    else:
-                        return f"Could not interpret the website request: {site_query}"
+                    task_result = self.task_planner.process_user_request(command, context)
+                    result = {
+                        'success': task_result.get('success', False),
+                        'result': task_result.get('response', ''),
+                        'metadata': {
+                            'method': 'task_planner',
+                            'actions_performed': task_result.get('actions_performed', []),
+                            'execution_time': task_result.get('execution_time', 0)
+                        }
+                    }
+                    return result['result']
                 except Exception as e:
                     return f"Error interpreting website request: {str(e)}"
             else:
-                return "Gemini AI is not enabled."
+                return "Gemini AI and Task Planner are not enabled."
         return "Please specify which website to browse."
