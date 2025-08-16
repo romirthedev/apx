@@ -1523,8 +1523,7 @@ Just tell me what you want to do in natural language!"""
                         if re.match(r"^(?:http(s)?:\/\/)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]+$", url):
                             return self._open_url_in_browser(url)
                         else:
-                            search_result = self.plugins['web_controller'].search_web(site_query)
-                            return f"Ambiguous site request. Searched online for '{site_query}'.\n{search_result}"
+                            return f"Could not find a valid URL for {site_query}"
                     else:
                         return f"Could not interpret the website request: {site_query}"
                 except Exception as e:
