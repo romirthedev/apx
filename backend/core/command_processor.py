@@ -430,8 +430,7 @@ class CommandProcessor:
                         url = ai_response['result']
                         if re.match(r"^(?:http(s)?:\/\/)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]+$", url):
                             # Use browser_action to open the browser and navigate to the URL
-                            self.plugins['web_controller'].browse_url(url)
-                            return f"Opened URL: {url}"
+                            return self._open_url_in_browser(url)
                         else:
                             return f"Could not find a valid URL for {url}"
                     else:
@@ -440,6 +439,11 @@ class CommandProcessor:
                     return f"Error finding URL: {str(e)}"
             else:
                 return "Gemini AI is not enabled."
+
+    def _open_url_in_browser(self, url: str) -> str:
+        """Open the URL in the browser using browser_action tool."""
+        self.plugins['web_controller'].browse_url(url)
+        return f"Opened URL: {url}"
     
     def _handle_download(self, url: str, context: List[Dict] = None) -> str:
         """Handle download commands."""
