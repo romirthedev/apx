@@ -193,6 +193,92 @@
       50% { transform: scale(1.2); }
       100% { transform: scale(1); }
     }
+
+    /* Confirmation dialog styles */
+    .confirmation-container {
+      background: rgba(40, 40, 40, 0.98);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px 0;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .confirmation-message {
+      color: #fff;
+      font-size: 16px;
+      margin-bottom: 15px;
+      line-height: 1.4;
+    }
+
+    .confirmation-details {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 12px;
+      margin: 12px 0;
+      font-size: 14px;
+      color: #ccc;
+    }
+
+    .risk-level {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      text-transform: uppercase;
+      margin-right: 8px;
+    }
+
+    .risk-level.low { background: #4caf50; color: white; }
+    .risk-level.medium { background: #ff9800; color: white; }
+    .risk-level.high { background: #f44336; color: white; }
+    .risk-level.critical { background: #d32f2f; color: white; }
+
+    .confirmation-buttons {
+      display: flex;
+      gap: 12px;
+      margin-top: 15px;
+    }
+
+    .confirm-button {
+      flex: 1;
+      padding: 12px 20px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+
+    .confirm-button:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.5);
+    }
+
+    .confirm-button.yes {
+      background: rgba(76, 175, 80, 0.2);
+      border-color: rgba(76, 175, 80, 0.5);
+    }
+
+    .confirm-button.yes:hover {
+      background: rgba(76, 175, 80, 0.3);
+      border-color: rgba(76, 175, 80, 0.7);
+    }
+
+    .confirm-button.no {
+      background: rgba(244, 67, 54, 0.2);
+      border-color: rgba(244, 67, 54, 0.5);
+    }
+
+    .confirm-button.no:hover {
+      background: rgba(244, 67, 54, 0.3);
+      border-color: rgba(244, 67, 54, 0.7);
+    }
   </style>
 </head>
 <body>
@@ -324,6 +410,13 @@
         if (response.success) {
           setStatus('success');
           
+          // Check if the command needs user confirmation
+          if (response.needs_confirmation) {
+            showConfirmationDialog(response);
+            commandInput.value = '';
+            return;
+          }
+          
           const resultText = response.result || 'Command completed successfully';
           const isAiResponse = response.is_ai_response || false;
           
@@ -355,6 +448,95 @@
         setTimeout(() => {
           setStatus('ready');
         }, 3000);
+      }
+    }
+    
+    // Confirmation dialog functions
+    function showConfirmationDialog(response) {
+      const riskLevel = response.metadata?.risk_level || 'medium';
+      const confirmationMessage = response.confirmation_message || 'Execute this command?';
+      const reason = response.confirmation_reason || 'Command requires confirmation';
+      const warnings = response.warnings || [];
+      
+      const warningsHtml = warnings.length > 0 ? 
+        `<div class="confirmation-details">⚠️ <strong>Warnings:</strong><br>${warnings.map(w => `• ${w}`).join('<br>')}</div>` : '';
+      
+      const confirmationHtml = `
+        <div class="confirmation-container">
+          <div class="confirmation-message">
+            🛡️ <strong>Security Confirmation Required</strong><br>
+            ${confirmationMessage}
+          </div>
+          <div class="confirmation-details">
+            <span class="risk-level ${riskLevel}">${riskLevel} risk</span>
+            ${reason}
+          </div>
+          ${warningsHtml}
+          <div class="confirmation-buttons">
+            <button class="confirm-button yes" onclick="confirmCommand(true, '${response.cache_key}', '${response.original_command}')">
+              ✅ Yes, Execute
+            </button>
+            <button class="confirm-button no" onclick="confirmCommand(false, '${response.cache_key}', '${response.original_command}')">
+              ❌ Cancel
+            </button>
+          </div>
+        </div>
+      `;
+      
+      showResponse(confirmationHtml, 'confirmation');
+      updateBanner("Choose Yes to execute or No to cancel");
+    }
+    
+    async function confirmCommand(confirmed, cacheKey, originalCommand) {
+      if (isProcessing) return;
+      
+      console.log('🔐 Confirming command:', { confirmed, originalCommand });
+      isProcessing = true;
+      setStatus('thinking');
+      
+      try {
+        if (!confirmed) {
+          showResponse('❌ **Command Cancelled**\n\nThe command was not executed.', 'info');
+          updateBanner('Cmd+Space: Toggle | Type command and press Enter | Escape: Clear', true);
+          return;
+        }
+        
+        showResponse('🔄 **Executing Command...**\n\nProceeding with approved command...', 'status');
+        
+        const response = await ipcRenderer.invoke('send-command-confirmation', {
+          cache_key: cacheKey,
+          confirmed: confirmed,
+          original_command: originalCommand,
+          context: []
+        });
+        
+        console.log('📨 Confirmation response received:', response);
+        
+        if (response.success) {
+          setStatus('success');
+          const resultText = response.result || 'Command completed successfully';
+          const isAiResponse = response.is_ai_response || false;
+          
+          const formattedResult = isAiResponse ? 
+            `🤖 **AI Response**\n\n${resultText}` : 
+            `✅ **Executed Successfully**\n\n${resultText}`;
+          
+          showResponse(formattedResult, 'success');
+          updateBanner("Cmd+Space: New Command | Escape: Clear");
+        } else {
+          setStatus('error');
+          const errorMsg = `❌ **Execution Failed**\n\n${response.result || response.error || 'Unknown error occurred'}`;
+          showResponse(errorMsg, 'error');
+          updateBanner('Cmd+Space: Toggle | Type command and press Enter | Escape: Clear', true);
+        }
+        
+      } catch (error) {
+        console.error('Command confirmation error:', error);
+        setStatus('error');
+        showResponse(`⚠️ **Confirmation Error**\n\n${error.message}`, 'error');
+      } finally {
+        isProcessing = false;
+        setTimeout(() => setStatus('ready'), 3000);
       }
     }
     

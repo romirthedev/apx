@@ -43,6 +43,23 @@ class CluelyBackend:
             action_logger=self.action_logger
         )
         
+        # Initialize the advanced task planner system (AI + Execution)
+        try:
+            from core.gemini_ai import GeminiAI
+            from core.task_planner import TaskPlannerManager
+            
+            api_key = self.config.get_gemini_api_key()
+            if api_key:
+                gemini_ai = GeminiAI(api_key=api_key)
+                self.task_planner = TaskPlannerManager(gemini_ai=gemini_ai)
+                logger.info("Task Planner Manager initialized successfully")
+            else:
+                logger.warning("Gemini API key not found, Task Planner will not be available")
+                self.task_planner = None
+        except Exception as e:
+            logger.error(f"Failed to initialize Task Planner: {str(e)}")
+            self.task_planner = None
+        
         # Context storage for conversation continuity
         self.context_storage: Dict[str, List[Dict]] = {}
         
@@ -73,8 +90,35 @@ class CluelyBackend:
                 # Log the incoming command
                 logger.info(f"Processing command: {command}")
                 
-                # Process the command
-                result = self.command_processor.process(command, context)
+                # Determine whether to use the task planner or regular command processor
+                use_task_planner = self.task_planner is not None
+                
+                # Enhanced: Always use AI planner for ambiguous web navigation requests
+                web_keywords = ["go to", "open", "search", "visit", "navigate"]
+                is_web_request = any(kw in command.lower() for kw in web_keywords)
+                has_url = any(proto in command.lower() for proto in ["http://", "https://", ".com", ".org", ".net"])
+                
+                if use_task_planner:
+                    words = command.split()
+                    has_conjunction = any(conj in command.lower() for conj in ["and", "then", "after"])
+                    is_complex = len(words) > 8 or has_conjunction
+                    # Route ambiguous web requests to AI planner even if not complex
+                    if is_complex or (is_web_request and not has_url):
+                        logger.info(f"Using Task Planner for request: {command}")
+                        task_result = self.task_planner.process_user_request(command, context)
+                        result = {
+                            'success': task_result.get('success', False),
+                            'result': task_result.get('response', ''),
+                            'metadata': {
+                                'method': 'task_planner',
+                                'actions_performed': task_result.get('actions_performed', []),
+                                'execution_time': task_result.get('execution_time', 0)
+                            }
+                        }
+                    else:
+                        result = self.command_processor.process(command, context)
+                else:
+                    result = self.command_processor.process(command, context)
                 
                 # Log the result for debugging
                 logger.info(f"Command result: success={result.get('success')}, method={result.get('metadata', {}).get('method')}")
@@ -103,7 +147,7 @@ class CluelyBackend:
                 # Determine if this was an AI response
                 metadata = result.get('metadata', {})
                 method = metadata.get('method', 'unknown')
-                is_ai_response = method in ['ai_response', 'ai_with_actions', 'ai_help', 'ai_understanding', 'gemini_ai']
+                is_ai_response = method in ['ai_response', 'ai_with_actions', 'ai_help', 'ai_understanding', 'gemini_ai', 'task_planner']
                 
                 response_data = {
                     'success': result.get('success', False),
@@ -128,6 +172,78 @@ class CluelyBackend:
                     'success': False,
                     'error': str(e),
                     'result': 'An error occurred while processing your command.'
+                })
+        
+        @self.app.route('/command/confirm', methods=['POST'])
+        def confirm_command():
+            try:
+                data = request.get_json()
+                cache_key = data.get('cache_key', '')
+                confirmed = data.get('confirmed', False)
+                original_command = data.get('original_command', '')
+                context = data.get('context', [])
+                
+                if not cache_key or not original_command:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Missing cache_key or original_command'
+                    })
+                
+                # Log the confirmation
+                logger.info(f"Command confirmation: {confirmed} for command: {original_command}")
+                
+                # Process the confirmed command
+                result = self.command_processor.confirm_and_execute(
+                    cache_key, confirmed, original_command, context
+                )
+                
+                # Log the result
+                logger.info(f"Confirmed command result: success={result.get('success')}")
+                
+                # Update context if command was executed
+                if confirmed and result.get('success'):
+                    new_context_item = {
+                        'timestamp': datetime.now().isoformat(),
+                        'command': original_command,
+                        'result': result.get('result', ''),
+                        'success': result.get('success', False)
+                    }
+                    
+                    context.append(new_context_item)
+                    if len(context) > 10:
+                        context = context[-10:]
+                    
+                    # Log the action
+                    self.action_logger.log_action(
+                        command=original_command,
+                        result=result.get('result', ''),
+                        success=result.get('success', False),
+                        metadata=result.get('metadata', {})
+                    )
+                
+                # Determine if this was an AI response
+                metadata = result.get('metadata', {})
+                method = metadata.get('method', 'unknown')
+                is_ai_response = method in ['ai_response', 'ai_with_actions', 'ai_help', 'ai_understanding', 'gemini_ai', 'task_planner']
+                
+                response_data = {
+                    'success': result.get('success', False),
+                    'result': result.get('result', ''),
+                    'context': context,
+                    'metadata': metadata,
+                    'is_ai_response': is_ai_response
+                }
+                
+                return jsonify(response_data)
+                
+            except Exception as e:
+                logger.error(f"Error confirming command: {str(e)}")
+                logger.error(traceback.format_exc())
+                
+                return jsonify({
+                    'success': False,
+                    'error': str(e),
+                    'result': 'An error occurred while confirming the command.'
                 })
         
         @self.app.route('/context/clear', methods=['POST'])

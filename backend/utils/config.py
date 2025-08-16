@@ -86,7 +86,7 @@ class Config:
             },
             "apis": {
                 "gemini": {
-                    "api_key": "AIzaSyBw53qUBjfwvz39u-bp5-DlkBa28KJpsmk",
+                    "api_key": "AIzaSyCD1_EiNAD267_n-2QJi9GpF1VkwW5sH3I",
                     "model": "gemini-2.0-flash-exp",
                     "enabled": True
                 },
@@ -284,3 +284,17 @@ class Config:
         except Exception as e:
             logger.error(f"Error importing config: {str(e)}")
             return False
+    
+    def get_gemini_api_key(self) -> Optional[str]:
+        """Get the Gemini API key from config or environment variable."""
+        # First try environment variable
+        api_key = os.environ.get('GEMINI_API_KEY')
+        if api_key:
+            return api_key
+        
+        # Then try config file - directly access config structure first
+        if 'apis' in self.config and 'gemini' in self.config['apis'] and 'api_key' in self.config['apis']['gemini']:
+            return self.config['apis']['gemini']['api_key']
+        
+        # Fall back to dot notation for backward compatibility
+        return self.get('apis.gemini.api_key') or self.get('ai.gemini_api_key') or self.get('api_keys.gemini')

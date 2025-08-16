@@ -16,30 +16,56 @@ class GeminiAI:
         self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
         
         # System prompt to make Gemini understand it's controlling a computer
-        self.system_prompt = """You are Cluely, an AI assistant with direct computer control capabilities. You can:
+        self.system_prompt = """You are Cluely, an AI assistant with FULL COMPUTER CONTROL. You have complete access to execute any command on this Mac system.
 
-1. EXECUTE SYSTEM COMMANDS: Run shell commands, scripts, and programs
-2. FILE OPERATIONS: Create, read, edit, delete, copy, move files and folders
-3. APP CONTROL: Launch, close, and switch between applications
-4. WEB AUTOMATION: Browse websites, search the web, download files
-5. SYSTEM MONITORING: Check system status, processes, time, weather
+🚨 EXECUTE ONLY - ZERO EXPLANATIONS - RESULTS ONLY
+When users request actions, you MUST:
+1. Execute the action SILENTLY with ABSOLUTELY NO explanation of what you're doing
+2. Report ONLY the final results, never how you got them
+3. NEVER ask permission or explain what you will do
+4. If a command fails, try a simpler approach immediately without explaining the change
+5. Always provide concrete results with no commentary or conversational language
 
-When users ask you to do something with their computer, you should:
-- Be helpful and execute the requested actions
-- Explain what you're doing
-- Ask for confirmation for potentially destructive operations
-- Provide clear feedback on results
+AVAILABLE ACTIONS (execute these directly):
+• SHELL COMMANDS: find, ls, grep, curl, python, npm, git - ANY terminal command
+• FILE OPERATIONS: create, edit, delete, move, copy, search files and folders  
+• APP CONTROL: launch/close applications, switch windows
+• WEB AUTOMATION: browse websites, download files, search online
+• SYSTEM INFO: check processes, disk usage, system status, time, weather
 
-You have access to these computer control functions through the Cluely backend system. Always be precise and helpful in your responses.
+CRITICAL BEHAVIOR:
+- User says "find smallest file" → EXECUTE search → Report: "Smallest files: file1.txt (0 bytes), file2.txt (12 bytes)..."
+- User says "create file notes.txt" → CREATE file → Report: "Created notes.txt"
+- User says "launch Chrome" → OPEN Chrome → Report: "Chrome launched"
+- User says "what files are in downloads" → LIST files → Report: "Downloads contains: [file list]"
+- User says "go to the linux website" or "open the python docs" → DO NOT just prepend https:// and open. INSTEAD: SEARCH online for the correct site, extract the best URL, then open it in the browser. Always reason in steps for ambiguous web requests.
 
-Current capabilities:
-- File management (create, edit, delete, search files)
-- Application control (launch apps, close windows)
-- Web operations (search, browse, download)
-- Script execution (Python, Bash, etc.)
-- System information and monitoring
+❌ FORBIDDEN RESPONSES:
+- "I understand you want me to find..."
+- "I'll proceed with the search..."  
+- "Do you want me to..."
+- "This command will..."
+- "Let me search for..."
 
-Respond naturally and helpfully to user requests."""
+✅ REQUIRED RESPONSES:
+- Execute → Report results only
+- "Found 3 files: example.txt (0 bytes)..."
+- "Created file successfully"
+- "Application launched"
+- "Searched online for 'linux website', found: https://linux.org, opened in browser."
+
+ERROR HANDLING:
+- If search takes too long → Use faster limited search and report what you found
+- If file not found → Create it or suggest alternative
+- If app won't launch → Report error and suggest fix
+- Always take action, never just explain what you "could" do
+
+SYSTEM ACCESS:
+- You have the ability to execute file searches, create/edit files, launch apps
+- Commands are safe and run with appropriate permissions
+- Execute first, report results after - users expect immediate action
+
+Be direct, immediate, and action-oriented. Users expect you to DO things, not discuss them. For ambiguous web requests, always search online for the correct site before navigating. Reason in steps and execute each step directly."""
 
     def generate_response(self, user_input: str, context: List[Dict] = None, available_actions: List[str] = None) -> Dict[str, Any]:
         """Generate an AI response using Gemini."""
@@ -62,7 +88,38 @@ Respond naturally and helpfully to user requests."""
                 prompt_parts.append(f"\nRecent conversation:\n" + "\n".join(conversation_history))
             
             prompt_parts.append(f"\nUser request: {user_input}")
-            prompt_parts.append("\nProvide a helpful response. If this requires a system action, suggest the specific command or explain how you would accomplish it.")
+            prompt_parts.append("""
+CRITICAL: For system commands, you MUST create structured action plans.
+
+FORMAT FOR SYSTEM ACTIONS:
+```json
+{
+  "response": "I'll help you with that. Let me break this down into steps...",
+  "actions": [
+    {"action": "open_app", "app": "Safari", "parameters": {}},
+    {"action": "navigate_url", "url": "https://openai.com", "parameters": {}},
+    {"action": "get_date", "parameters": {"format": "%B %d, %Y"}},
+    {"action": "open_app", "app": "Notes", "parameters": {}},
+    {"action": "type_text", "text": "August 15, 2025", "parameters": {}}
+  ]
+}
+```
+
+AVAILABLE ACTIONS:
+- open_app: Launch applications
+- close_app: Close applications  
+- navigate_url: Open URLs in browsers
+- click_coordinates: Click at x,y position
+- type_text: Type text using keyboard
+- press_keys: Press key combinations
+- get_date: Get current date/time
+- take_screenshot: Capture screen
+- find_file: Search for files
+- create_file: Create new files
+- run_command: Execute shell commands
+- get_system_info: Get system status
+
+For conversational queries, respond normally without the JSON structure.""")
             
             full_prompt = "\n".join(prompt_parts)
             
@@ -72,21 +129,85 @@ Respond naturally and helpfully to user requests."""
             # Parse the response to determine if it requires system actions
             ai_response = response.text
             
-            # Try to extract actionable commands from the response
-            suggested_actions = self._extract_actions(ai_response, user_input)
+            # Try to extract structured JSON actions first
+            structured_actions = self._extract_json_actions(ai_response)
+            
+            # Fallback to pattern-based extraction if no JSON found
+            if not structured_actions:
+                structured_actions = self._extract_actions(ai_response, user_input)
+            
+            # Remove any explanatory text if actions are detected
+            if len(structured_actions) > 0:
+                # Keep only result information, strip out explanations
+                stripped_response = ai_response.split("I'll")[0]
+                stripped_response = stripped_response.split("Here's")[0]
+                stripped_response = stripped_response.split("Let me")[0]
+                stripped_response = stripped_response.split("First")[0]
+                stripped_response = stripped_response.split("Now I'll")[0]
+                stripped_response = stripped_response.split("I can")[0]
+                stripped_response = stripped_response.split("I will")[0]
+                
+                # Additional filtering to remove common explanation phrases
+                explanation_phrases = [
+                    "Let me", "I'll", "I will", "Here's", "First", "Now", 
+                    "To ", "I can", "I need to", "This will", "I would", 
+                    "You can", "You could", "would you like", "do you want",
+                    "should I", "I'm going to", "I am going to"
+                ]
+                
+                for phrase in explanation_phrases:
+                    if phrase.lower() in stripped_response.lower():
+                        parts = stripped_response.lower().split(phrase.lower(), 1)
+                        stripped_response = parts[0]
+                
+                # If stripping made it too short, just return action results
+                if len(stripped_response.strip()) < 10:
+                    final_response = "Task completed."
+                else:
+                    final_response = stripped_response.strip()
+            else:
+                final_response = ai_response
             
             return {
                 'success': True,
-                'response': ai_response,
-                'suggested_actions': suggested_actions,
-                'requires_action': len(suggested_actions) > 0
+                'response': final_response,
+                'suggested_actions': structured_actions,
+                'requires_action': len(structured_actions) > 0
             }
             
         except Exception as e:
             logger.error(f"Gemini AI error: {str(e)}")
+            error_message = str(e)
+            
+            # Check for specific error types and provide more helpful messages
+            if "429" in error_message and "quota" in error_message.lower():
+                friendly_message = "API usage quota exceeded. Please try again later or check your Gemini API key configuration."
+                # For quota errors, try to provide a simpler version of the task planner functionality
+                if "find" in user_input.lower() and "file" in user_input.lower():
+                    return {
+                        'success': True,
+                        'response': "I'll search for those files for you.",
+                        'suggested_actions': [{
+                            'type': 'run_command',
+                            'description': "Execute file search",
+                            'parameters': {
+                                'command': f"find ~/Desktop -name '*.txt' -type f -exec ls -la {{}} \\;"
+                            },
+                            'confidence': 0.9,
+                            'source': 'fallback_pattern'
+                        }],
+                        'requires_action': True
+                    }
+            elif "403" in error_message or "401" in error_message:
+                friendly_message = "Authentication error with the Gemini API. Please check your API key configuration."
+            else:
+                friendly_message = f"I encountered an error while processing your request: {error_message}"
+                
+            logger.error(f"Gemini AI error details: {error_message}")
+            
             return {
                 'success': False,
-                'response': f"I apologize, but I encountered an error while processing your request: {str(e)}",
+                'response': friendly_message,
                 'suggested_actions': [],
                 'requires_action': False
             }
@@ -95,43 +216,195 @@ Respond naturally and helpfully to user requests."""
         """Extract actionable commands from AI response."""
         actions = []
         
-        # Common action patterns that Gemini might suggest
+        # Enhanced action patterns that Gemini might suggest
         action_patterns = {
-            'file_create': ['create file', 'make file', 'new file'],
-            'file_open': ['open file', 'show file', 'display file'],
-            'app_launch': ['launch app', 'open app', 'start app', 'run app'],
-            'web_search': ['search web', 'google search', 'search for'],
-            'system_info': ['system info', 'system status', 'check system'],
-            'script_run': ['run script', 'execute script', 'python script']
+            'file_create': ['create file', 'make file', 'new file', 'generate file', 'build file', 'i\'ve created', 'creating', 'i will create'],
+            'file_open': ['open file', 'show file', 'display file', 'view file', 'read file'],
+            'file_edit': ['edit file', 'modify file', 'update file', 'change file', 'write to file'],
+            'file_delete': ['delete file', 'remove file', 'erase file'],
+            'file_search': ['find file', 'search file', 'locate file', 'find smallest', 'find largest', 'search for file', 'smallest file', 'largest file'],
+            'system_search': ['find smallest file', 'find largest file', 'search system', 'scan for files', 'finding the smallest', 'searching for smallest', 'looking for smallest'],
+            'app_launch': ['launch app', 'open app', 'start app', 'run app', 'i\'ll launch', 'launching', 'i will open'],
+            'app_close': ['close app', 'quit app', 'exit app', 'stop app', 'kill app'],
+            'web_search': ['search web', 'google search', 'search for', 'look up', 'find online', 'web search'],
+            'web_browse': ['browse', 'visit', 'go to', 'navigate to', 'open url'],
+            'system_info': ['system info', 'system status', 'check system', 'system details'],
+            'script_run': ['run script', 'execute script', 'python script', 'bash command', 'run command', 'execute command', 'terminal command'],
+            'organize': ['organize', 'sort', 'arrange', 'clean up', 'tidy up', 'structure'],
+            'backup': ['backup', 'back up', 'save copy', 'create backup', 'archive'],
+            'screenshot': ['screenshot', 'screen capture', 'take screenshot', 'capture screen'],
+            'terminal_command': ['find /', 'ls -la', 'grep', 'cat', 'head', 'tail', 'sort', 'awk', 'sed', 'i\'m finding', 'i\'m searching', 'i\'m looking']
         }
         
         response_lower = ai_response.lower()
+        user_input_lower = user_input.lower()
+        
+        # Check both the AI response and original user input for action indicators
+        combined_text = response_lower + " " + user_input_lower
         
         for action_type, keywords in action_patterns.items():
             for keyword in keywords:
-                if keyword in response_lower:
+                if keyword in combined_text:
                     actions.append({
                         'type': action_type,
                         'description': f"Execute {action_type.replace('_', ' ')}",
-                        'confidence': 0.8
+                        'confidence': 0.8,
+                        'source': 'ai_response' if keyword in response_lower else 'user_input'
                     })
+                    break  # Only add each action type once
+        
+        # Check for specific file names in create commands
+        if 'file_create' in [a['type'] for a in actions]:
+            import re
+            # Look for filename patterns in user input
+            filename_patterns = [
+                r'create (?:file |)([^\s]+\.[\w]+)',  # "create file name.ext"
+                r'make (?:file |)([^\s]+\.[\w]+)',    # "make file name.ext"  
+                r'new (?:file |)([^\s]+\.[\w]+)',     # "new file name.ext"
+                r'file (?:called |named |)([^\s]+\.[\w]+)'  # "file called name.ext"
+            ]
+            
+            for pattern in filename_patterns:
+                match = re.search(pattern, user_input_lower)
+                if match:
+                    # Update the file_create action with specific filename
+                    for action in actions:
+                        if action['type'] == 'file_create':
+                            action['filename'] = match.group(1)
+                            action['confidence'] = 0.9
+                            break
                     break
         
         return actions
     
+    def _extract_json_actions(self, ai_response: str) -> List[Dict[str, Any]]:
+        """Extract JSON-formatted action plans from AI response."""
+        actions = []
+        
+        try:
+            import re
+            import json
+            
+            # Look for JSON inside code blocks with improved pattern matching
+            json_patterns = [
+                r'```json\s*(.*?)\s*```',  # Standard markdown JSON block
+                r'```\s*(\{.*?\})\s*```',   # Generic code block with JSON object
+                r'\{[\s\n]*"response"[\s\n]*:.*?"actions"[\s\n]*:[\s\n]*\[.*?\][\s\n]*\}', # Raw JSON with actions array
+                r'\{[\s\n]*"actions"[\s\n]*:[\s\n]*\[.*?\][\s\n]*\}' # Raw JSON with only actions array
+            ]
+            
+            for pattern in json_patterns:
+                matches = re.findall(pattern, ai_response, re.DOTALL)
+                
+                for match in matches:
+                    try:
+                        # Clean up the match to handle potential formatting issues
+                        cleaned_match = match.strip()
+                        # Remove any trailing commas that might cause parsing errors
+                        cleaned_match = re.sub(r',\s*}', '}', cleaned_match)
+                        cleaned_match = re.sub(r',\s*]', ']', cleaned_match)
+                        
+                        parsed_json = json.loads(cleaned_match)
+                        
+                        # Check if the parsed JSON has an "actions" array
+                        if isinstance(parsed_json, dict) and 'actions' in parsed_json:
+                            action_list = parsed_json['actions']
+                            
+                            # Process each action in the list
+                            for action in action_list:
+                                if isinstance(action, dict) and 'action' in action:
+                                    # Convert action to standard format
+                                    actions.append({
+                                        'type': action['action'],
+                                        'description': f"Execute {action['action']}",
+                                        'parameters': {k: v for k, v in action.items() if k != 'action'},
+                                        'confidence': 0.95,
+                                        'source': 'json_structure'
+                                    })
+                            
+                            # If we found valid actions, no need to check other patterns
+                            if actions:
+                                break
+                                
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse JSON from match: {match[:100]}...")
+                
+                # If we found valid actions, no need to check other patterns
+                if actions:
+                    break
+            
+        except Exception as e:
+            logger.error(f"Error extracting JSON actions: {str(e)}")
+        
+        return actions
+
+    def _extract_structured_actions(self, ai_response: str) -> List[Dict[str, str]]:
+        """Extract structured action plans from AI response."""
+        actions = []
+        
+        try:
+            import re
+            import json
+            
+            # Look for PLANNED_ACTIONS in the response
+            pattern = r'PLANNED_ACTIONS:\s*\[(.*?)\]'
+            match = re.search(pattern, ai_response, re.DOTALL)
+            
+            if match:
+                actions_text = '[' + match.group(1) + ']'
+                try:
+                    parsed_actions = json.loads(actions_text)
+                    
+                    for action in parsed_actions:
+                        if isinstance(action, dict) and 'action' in action:
+                            actions.append({
+                                'type': action['action'],
+                                'target': action.get('target', ''),
+                                'parameters': action.get('parameters', {}),
+                                'description': f"Execute {action['action']} on {action.get('target', 'system')}",
+                                'confidence': 0.95,
+                                'source': 'structured_plan'
+                            })
+                except json.JSONDecodeError:
+                    logger.warning("Failed to parse structured actions JSON")
+            
+        except Exception as e:
+            logger.error(f"Error extracting structured actions: {str(e)}")
+        
+        return actions
+
     def should_use_ai(self, command: str) -> bool:
         """Determine if a command should be processed by AI instead of rule-based system."""
-        # Use AI for conversational queries, complex requests, or when rule-based system fails
+        # Use AI for conversational queries, complex requests, or natural language action requests
         ai_indicators = [
+            # Conversational patterns
             'how', 'why', 'what', 'when', 'where', 'who',
             'explain', 'tell me', 'describe', 'help me understand',
             'i need', 'can you', 'please', 'would you',
             'recommend', 'suggest', 'advice', 'think',
-            'best way', 'how to', 'tutorial', 'guide'
+            'best way', 'how to', 'tutorial', 'guide',
+            # Natural language action requests
+            'help me', 'i want to', 'i need to', 'could you',
+            'would you mind', 'can you help me', 'please help',
+            # Complex or multi-part requests
+            'and also', 'then', 'after that', 'both', 'multiple'
         ]
         
         command_lower = command.lower()
-        return any(indicator in command_lower for indicator in ai_indicators)
+        
+        # Use AI if command contains conversational indicators
+        if any(indicator in command_lower for indicator in ai_indicators):
+            return True
+            
+        # Use AI for longer, more natural language requests (likely more complex)
+        if len(command.split()) > 6:  # Commands with more than 6 words are likely conversational
+            return True
+            
+        # Use AI for questions (end with ?)
+        if command.strip().endswith('?'):
+            return True
+            
+        return False
     
     def enhance_command_understanding(self, command: str) -> Dict[str, Any]:
         """Use AI to better understand ambiguous commands."""

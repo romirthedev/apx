@@ -298,6 +298,53 @@ ipcMain.handle('send-command', async (event, command) => {
   }
 });
 
+// Handle command confirmation
+ipcMain.handle('send-command-confirmation', async (event, data) => {
+  console.log('Received command confirmation:', data);
+  
+  try {
+    console.log(`Sending confirmation to backend at ${BACKEND_URL}/command/confirm`);
+    
+    const response = await axios.post(`${BACKEND_URL}/command/confirm`, {
+      cache_key: data.cache_key,
+      confirmed: data.confirmed,
+      original_command: data.original_command,
+      context: data.context || []
+    }, {
+      timeout: 30000, // 30 second timeout
+      family: 4 // Force IPv4
+    });
+    
+    console.log('Backend confirmation response status:', response.status);
+    console.log('Backend confirmation response data:', response.data);
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error sending confirmation to backend:', error);
+    
+    let errorMessage = 'Failed to confirm command with backend service';
+    let suggestion = 'Please ensure the backend service is running';
+    
+    if (error.code === 'ECONNREFUSED') {
+      errorMessage = 'Backend service is not running';
+    } else if (error.code === 'ETIMEDOUT') {
+      errorMessage = 'Backend service is not responding (timeout)';
+      suggestion = 'The backend may be overloaded or stuck';
+    } else if (error.response) {
+      errorMessage = `Backend error: ${error.response.status} - ${error.response.statusText}`;
+      if (error.response.data && error.response.data.error) {
+        suggestion = error.response.data.error;
+      }
+    }
+    
+    return { 
+      success: false, 
+      error: errorMessage,
+      result: suggestion
+    };
+  }
+});
+
 ipcMain.handle('get-settings', () => {
   return store.get('settings', {
     theme: 'dark',

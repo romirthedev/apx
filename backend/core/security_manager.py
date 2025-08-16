@@ -262,20 +262,26 @@ class SecurityManager:
                     'reason': 'Recently confirmed'
                 }
         
-        # Determine if confirmation is needed
+        # Determine if confirmation is needed - be very permissive for AI control
         needs_confirm = False
         reason = ""
         
-        if risk_level in ['high', 'critical']:
-            needs_confirm = True
-            reason = f"High-risk operation ({risk_level})"
-        elif target_path and not self.is_path_safe(target_path):
-            needs_confirm = True
-            reason = "Operation on sensitive system path"
-        elif any(pattern in command.lower() for pattern in self.dangerous_patterns):
-            needs_confirm = True
-            reason = "Command contains dangerous patterns"
+        # Only require confirmation for extremely dangerous commands
+        extremely_dangerous = [
+            'rm -rf /',
+            'format c:',
+            'del /f /s /q c:\\',
+            'dd if=/dev/zero',
+            'mkfs',
+            'fdisk /dev/sda'
+        ]
         
+        command_lower = command.lower()
+        if any(dangerous in command_lower for dangerous in extremely_dangerous):
+            needs_confirm = True
+            reason = "Extremely dangerous system operation - could destroy data"
+        
+        # Allow AI full control for everything else
         return {
             'needs_confirmation': needs_confirm,
             'risk_level': risk_level,
@@ -301,12 +307,12 @@ class SecurityManager:
             # Check if command needs confirmation
             confirmation_info = self.needs_confirmation(command, action_type, target_path)
             
-            # For now, we'll allow all commands but log the risk assessment
-            # In a production environment, you might want to block high-risk commands
-            # until user confirmation is implemented in the UI
+            # Determine execution strategy based on risk level
+            auto_execute = self._should_auto_execute(confirmation_info['risk_level'], command)
             
             return {
                 'allowed': True,
+                'auto_execute': auto_execute,
                 'risk_level': confirmation_info['risk_level'],
                 'needs_confirmation': confirmation_info['needs_confirmation'],
                 'confirmation_reason': confirmation_info.get('reason', ''),
@@ -320,6 +326,29 @@ class SecurityManager:
                 'allowed': False,
                 'reason': f'Validation error: {str(e)}'
             }
+    
+    def _should_auto_execute(self, risk_level: str, command: str) -> bool:
+        """Determine if a command should be automatically executed."""
+        # Auto-execute almost all commands - give AI full control
+        # Only block extremely dangerous system-destroying commands
+        extremely_dangerous = [
+            'rm -rf /',
+            'format c:',
+            'del /f /s /q c:\\',
+            'dd if=/dev/zero of=/dev/sda',
+            'mkfs',
+            'fdisk /dev/sda'
+        ]
+        
+        command_lower = command.lower().strip()
+        
+        # Block only the most catastrophic commands
+        for dangerous in extremely_dangerous:
+            if dangerous in command_lower:
+                return False
+        
+        # Auto-execute everything else - full AI control
+        return True
     
     def _generate_warnings(self, command: str, action_type: str = None, target_path: str = None) -> List[str]:
         """Generate security warnings for the command."""

@@ -64,11 +64,14 @@ class CommandProcessor:
         # Command patterns and their handlers
         self.command_patterns = [
             # System info (check these first)
+            (r'(?:what|which)\s+(?:is\s+)?(?:my\s+)?(?:operating\s+)?(?:system|os)(?:\s+am\s+i\s+(?:running|using))?', self._handle_operating_system),
             (r'(?:show|get|display)\s+(?:system\s+)?(?:info|information|status)', self._handle_system_info),
             (r'(?:what\s+time|time|clock)', self._handle_time),
             (r'(?:weather|temperature)', self._handle_weather),
             (r'(?:show|list)\s+(?:running\s+)?processes', self._handle_running_processes),
             (r'(?:what|which)\s+(?:app|application|program)s?\s+(?:take|use|consume)s?\s+(?:the\s+)?most\s+(?:space|disk|storage)', self._handle_largest_apps),
+            (r'(?:find|show|get)\s+(?:the\s+)?largest\s+file(?:s?)\s*(?:on\s+(?:my\s+)?computer|in\s+system)?', self._handle_find_largest_file),
+            (r'(?:find|show|get)\s+(?:the\s+)?smallest\s+file(?:s?)\s*(?:on\s+(?:my\s+)?computer|in\s+system)?', self._handle_find_smallest_file),
             (r'(?:show|analyze|check)\s+(?:disk\s+)?(?:usage|space)', self._handle_disk_usage),
             
             # macOS System Control
@@ -139,20 +142,117 @@ class CommandProcessor:
             
             logger.info(f"Processing command: {command}")
             
-            # Check security permissions
-            if not self._check_command_security(command):
+            # Security validation
+            security_result = self.security_manager.validate_command_execution(original_command)
+            
+            if not security_result.get('allowed', False):
                 return {
                     'success': False,
-                    'result': 'Permission denied. This command requires elevated privileges.',
+                    'result': f"Command blocked: {security_result.get('reason', 'Security validation failed')}",
                     'metadata': {'security_blocked': True}
                 }
             
-            # First try rule-based pattern matching for direct system commands
+            # Check if command needs user confirmation (only for extremely dangerous commands)
+            if security_result.get('needs_confirmation', False) and not security_result.get('auto_execute', True):
+                return {
+                    'success': True,
+                    'needs_confirmation': True,
+                    'confirmation_message': f"⚠️ DANGER: Execute extremely dangerous command?",
+                    'confirmation_reason': security_result.get('confirmation_reason', ''),
+                    'warnings': security_result.get('warnings', []),
+                    'cache_key': security_result.get('cache_key', ''),
+                    'original_command': original_command,
+                    'metadata': {
+                        'risk_level': security_result['risk_level'],
+                        'pending_execution': True
+                    }
+                }
+            
+            # Proceed with execution (either auto-execute or already confirmed)
+            return self._execute_command(original_command, context, security_result)
+            
+        except Exception as e:
+            logger.error(f"Error processing command: {str(e)}")
+            return {
+                'success': False,
+                'result': f'An error occurred while processing the command: {str(e)}',
+                'metadata': {'error': True}
+            }
+    
+    def confirm_and_execute(self, cache_key: str, confirmed: bool, original_command: str, context: List[Dict] = None) -> Dict[str, Any]:
+        """Execute a command after user confirmation."""
+        try:
+            # Store confirmation in security manager
+            self.security_manager.confirm_action(cache_key, confirmed)
+            
+            if not confirmed:
+                return {
+                    'success': False,
+                    'result': 'Command execution cancelled by user.',
+                    'metadata': {'user_cancelled': True}
+                }
+            
+            # Re-validate and execute
+            security_result = self.security_manager.validate_command_execution(original_command)
+            return self._execute_command(original_command, context or [], security_result)
+            
+        except Exception as e:
+            logger.error(f"Error in confirm_and_execute: {str(e)}")
+            return {
+                'success': False,
+                'result': f'An error occurred during execution: {str(e)}',
+                'metadata': {'error': True}
+            }
+    
+    def _execute_command(self, command: str, context: List[Dict], security_result: Dict) -> Dict[str, Any]:
+        """Execute the validated command."""
+        try:
+            command_lower = command.strip().lower()
+            
+            # Check if AI should handle this command first (prioritize natural language)
+            if self.gemini_ai and self.gemini_ai.should_use_ai(command):
+                try:
+                    ai_response = self.gemini_ai.generate_response(
+                        command, 
+                        context, 
+                        self.get_available_actions()
+                    )
+                    
+                    if ai_response.get('success'):
+                        # If AI suggests specific actions, try to execute them
+                        if ai_response.get('requires_action') and ai_response.get('suggested_actions'):
+                            action_results = []
+                            for action in ai_response['suggested_actions']:
+                                action_result = self._execute_ai_suggested_action(action, command)
+                                if action_result:
+                                    action_results.append(action_result)
+                            
+                            if action_results:
+                                combined_result = ai_response['response'] + "\n\nActions performed:\n" + "\n".join(action_results)
+                                return {
+                                    'success': True,
+                                    'result': combined_result,
+                                    'metadata': {'method': 'ai_with_actions', 'actions': action_results}
+                                }
+                        
+                        # Return AI response
+                        return {
+                            'success': True,
+                            'result': ai_response['response'],
+                            'metadata': {'method': 'ai_response'}
+                        }
+                except Exception as e:
+                    logger.error(f"AI processing failed, falling back to rule-based: {str(e)}")
+            
+            # Try rule-based pattern matching for direct system commands
             for pattern, handler in self.command_patterns:
-                match = re.search(pattern, command)
+                match = re.search(pattern, command_lower)
                 if match:
+                    logger.info(f"Command '{command}' matched pattern: {pattern}")
+                    logger.info(f"Match groups: {match.groups()}")
                     try:
                         result = handler(*match.groups(), context=context)
+                        logger.info(f"Handler {handler.__name__} returned: {result[:100]}...")
                         return {
                             'success': True,
                             'result': result,
@@ -163,13 +263,13 @@ class CommandProcessor:
                         # Continue to AI processing if rule-based fails
                         break
             
-            # If no pattern matched or rule-based failed, try AI processing
+            # If no pattern matched or rule-based failed, try AI processing (fallback)
             if self.gemini_ai:
                 try:
                     # Check if this command should use AI
-                    if self.gemini_ai.should_use_ai(original_command):
+                    if self.gemini_ai.should_use_ai(command):
                         ai_response = self.gemini_ai.generate_response(
-                            original_command, 
+                            command, 
                             context, 
                             self.get_available_actions()
                         )
@@ -179,7 +279,7 @@ class CommandProcessor:
                             if ai_response.get('requires_action') and ai_response.get('suggested_actions'):
                                 action_results = []
                                 for action in ai_response['suggested_actions']:
-                                    action_result = self._execute_ai_suggested_action(action, original_command)
+                                    action_result = self._execute_ai_suggested_action(action, command)
                                     if action_result:
                                         action_results.append(action_result)
                                 
@@ -199,7 +299,7 @@ class CommandProcessor:
                             }
                     
                     # Try AI-enhanced command understanding for ambiguous commands
-                    understanding = self.gemini_ai.enhance_command_understanding(original_command)
+                    understanding = self.gemini_ai.enhance_command_understanding(command)
                     if understanding.get('success') and understanding['understanding']['confidence'] > 0.7:
                         intent_data = understanding['understanding']
                         result = self._execute_intent(intent_data, context)
@@ -216,7 +316,7 @@ class CommandProcessor:
             
             # Fall back to original NLP processing
             try:
-                intent = self.nlp_processor.extract_intent(command, context)
+                intent = self.nlp_processor.extract_intent(command_lower, context)
                 result = self._handle_intent(intent, context)
                 return {
                     'success': True,
@@ -228,7 +328,7 @@ class CommandProcessor:
                 
                 # Final fallback: AI help if available
                 if self.gemini_ai:
-                    help_response = self.gemini_ai.get_contextual_help(original_command, self.get_available_actions())
+                    help_response = self.gemini_ai.get_contextual_help(command, self.get_available_actions())
                     return {
                         'success': True,
                         'result': help_response,
@@ -352,6 +452,215 @@ class CommandProcessor:
     def _handle_largest_apps(self, context: List[Dict] = None) -> str:
         """Handle largest applications requests."""
         return self.plugins['system_info'].get_largest_apps()
+    
+    def _handle_find_largest_file(self, context: List[Dict] = None) -> str:
+        """Handle finding the largest file on the system."""
+        try:
+            import subprocess
+            import os
+            
+            # Start with more targeted search to avoid timeouts
+            # First try user directories which are more likely to have large files
+            user_home = os.path.expanduser("~")
+            
+            # Search priority areas first
+            search_areas = [
+                f"{user_home}/Downloads",
+                f"{user_home}/Desktop", 
+                f"{user_home}/Documents",
+                f"{user_home}/Movies",
+                f"{user_home}/Pictures",
+                f"{user_home}",  # Entire home directory
+                "/Applications",  # macOS Applications
+                "/"  # Full system (last resort)
+            ]
+            
+            largest_file = None
+            largest_size = 0
+            
+            for search_path in search_areas:
+                if not os.path.exists(search_path):
+                    continue
+                    
+                try:
+                    # Use a shorter timeout for each area
+                    cmd = f"find '{search_path}' -type f -exec ls -la {{}} + 2>/dev/null | awk '{{if($5 > max) {{max=$5; file=$9}} }} END {{print max, file}}'"
+                    
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        output = result.stdout.strip()
+                        if output and output != " ":
+                            parts = output.split(' ', 1)
+                            if len(parts) == 2 and parts[0].isdigit():
+                                size_bytes = int(parts[0])
+                                file_path = parts[1]
+                                
+                                if size_bytes > largest_size:
+                                    largest_size = size_bytes
+                                    largest_file = file_path
+                
+                except (subprocess.TimeoutExpired, Exception) as e:
+                    # Continue to next search area if this one fails
+                    continue
+            
+            if largest_file and largest_size > 0:
+                # Convert bytes to human readable format
+                def format_size(bytes):
+                    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+                        if bytes < 1024.0:
+                            return f"{bytes:.1f} {unit}"
+                        bytes /= 1024.0
+                    return f"{bytes:.1f} PB"
+                
+                formatted_size = format_size(largest_size)
+                
+                return f"""🔍 **Largest File Found**
+
+**File:** {largest_file}
+**Size:** {formatted_size} ({largest_size:,} bytes)
+
+This is the largest file found during the search of your accessible directories."""
+            
+            # If no file found, try a quick alternative approach
+            try:
+                # Use du command for a faster approach
+                cmd = f"du -a '{user_home}' 2>/dev/null | sort -rn | head -1"
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    output = result.stdout.strip()
+                    parts = output.split('\t', 1) if '\t' in output else output.split(' ', 1)
+                    if len(parts) == 2:
+                        size_kb = int(parts[0])
+                        file_path = parts[1]
+                        size_bytes = size_kb * 1024
+                        
+                        def format_size(bytes):
+                            for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+                                if bytes < 1024.0:
+                                    return f"{bytes:.1f} {unit}"
+                                bytes /= 1024.0
+                            return f"{bytes:.1f} PB"
+                        
+                        formatted_size = format_size(size_bytes)
+                        
+                        return f"""🔍 **Largest File Found**
+
+**File:** {file_path}
+**Size:** {formatted_size} ({size_bytes:,} bytes)
+
+This is the largest file found in your home directory."""
+            except Exception:
+                pass
+            
+            return "❌ Could not find large files. The search may have been restricted by system permissions or no accessible large files were found."
+                
+        except Exception as e:
+            return f"❌ Failed to search for largest file: {str(e)}"
+    
+    def _handle_find_smallest_file(self, context: List[Dict] = None) -> str:
+        """Handle finding the smallest file on the system."""
+        try:
+            import subprocess
+            import os
+            
+            # Start with more targeted search to avoid timeouts
+            user_home = os.path.expanduser("~")
+            
+            # Search priority areas first
+            search_areas = [
+                f"{user_home}/Downloads",
+                f"{user_home}/Desktop", 
+                f"{user_home}/Documents",
+                f"{user_home}/.config",
+                f"{user_home}",  # Entire home directory
+                "/Applications",  # macOS Applications
+                "/"  # Full system (last resort)
+            ]
+            
+            smallest_file = None
+            smallest_size = float('inf')  # Start with infinity to find the smallest
+            
+            for search_path in search_areas:
+                if not os.path.exists(search_path):
+                    continue
+                    
+                try:
+                    # Use find to locate non-empty files (size > 0) and get the smallest
+                    cmd = f"find '{search_path}' -type f -size +0c -exec ls -la {{}} + 2>/dev/null | awk '{{if($5 < min || min==0) {{min=$5; file=$9}} }} END {{print min, file}}'"
+                    
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        output = result.stdout.strip()
+                        if output and output != " ":
+                            parts = output.split(' ', 1)
+                            if len(parts) == 2 and parts[0].isdigit():
+                                size_bytes = int(parts[0])
+                                file_path = parts[1]
+                                
+                                if size_bytes < smallest_size:
+                                    smallest_size = size_bytes
+                                    smallest_file = file_path
+                
+                except (subprocess.TimeoutExpired, Exception) as e:
+                    # Continue to next search area if this one fails
+                    continue
+            
+            if smallest_file and smallest_size < float('inf'):
+                # Convert bytes to human readable format
+                def format_size(bytes):
+                    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+                        if bytes < 1024.0:
+                            return f"{bytes:.1f} {unit}"
+                        bytes /= 1024.0
+                    return f"{bytes:.1f} PB"
+                
+                formatted_size = format_size(smallest_size)
+                
+                return f"""🔍 **Smallest File Found**
+
+**File:** {smallest_file}
+**Size:** {formatted_size} ({smallest_size:,} bytes)
+
+This is the smallest file found during the search of your accessible directories."""
+            
+            # If no file found, try a quick alternative approach
+            try:
+                # Use find with a more focused approach
+                cmd = f"find '{user_home}' -type f -size +0c -size -1024c 2>/dev/null | xargs ls -la 2>/dev/null | sort -n -k 5 | head -1"
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    output = result.stdout.strip()
+                    parts = output.split()
+                    if len(parts) >= 5:
+                        size_bytes = int(parts[4])
+                        file_path = ' '.join(parts[8:]) if len(parts) > 8 else parts[8]
+                        
+                        def format_size(bytes):
+                            for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+                                if bytes < 1024.0:
+                                    return f"{bytes:.1f} {unit}"
+                                bytes /= 1024.0
+                            return f"{bytes:.1f} PB"
+                        
+                        formatted_size = format_size(size_bytes)
+                        
+                        return f"""🔍 **Smallest File Found**
+
+**File:** {file_path}
+**Size:** {formatted_size} ({size_bytes:,} bytes)
+
+This is the smallest file found in your home directory."""
+            except Exception:
+                pass
+            
+            return "❌ Could not find small files. The search may have been restricted by system permissions or no accessible small files were found."
+                
+        except Exception as e:
+            return f"❌ Failed to search for smallest file: {str(e)}"
     
     def _handle_disk_usage(self, context: List[Dict] = None) -> str:
         """Handle disk usage analysis requests."""
@@ -483,35 +792,391 @@ Just tell me what you want to do in natural language!"""
         """Execute an action suggested by AI."""
         try:
             action_type = action.get('type', '')
+            logger.info(f"Executing AI suggested action: {action_type}")
             
             if action_type == 'file_create':
-                # Extract filename from original command
+                # Check if we have a specific filename from action extraction
+                if 'filename' in action:
+                    filename = action['filename']
+                else:
+                    # Extract filename from original command
+                    import re
+                    filename_patterns = [
+                        r'create (?:file |)([^\s]+\.[\w]+)',
+                        r'make (?:file |)([^\s]+\.[\w]+)', 
+                        r'new (?:file |)([^\s]+\.[\w]+)',
+                        r'file (?:called |named |)([^\s]+\.[\w]+)'
+                    ]
+                    
+                    filename = None
+                    for pattern in filename_patterns:
+                        match = re.search(pattern, original_command.lower())
+                        if match:
+                            filename = match.group(1)
+                            break
+                    
+                    if not filename:
+                        # Default filename if none specified
+                        filename = f"new_file_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                
+                return self.plugins['file_manager'].create_file(filename)
+            
+            elif action_type == 'file_open':
+                # Extract filename from command
                 import re
-                filename_match = re.search(r'(?:create|make|new)\s+(?:file\s+)?(\S+)', original_command)
+                filename_match = re.search(r'(?:open|show|display)\s+(?:file\s+)?(\S+)', original_command.lower())
                 if filename_match:
                     filename = filename_match.group(1)
-                    return self.plugins['file_manager'].create_file(filename)
+                    return self.plugins['file_manager'].open_file(filename)
+                return "Please specify which file to open."
+            
+            elif action_type == 'file_edit':
+                # Extract filename from command
+                import re
+                filename_match = re.search(r'(?:edit|modify|update)\s+(?:file\s+)?(\S+)', original_command.lower())
+                if filename_match:
+                    filename = filename_match.group(1)
+                    return self.plugins['file_manager'].edit_file(filename)
+                return "Please specify which file to edit."
+            
+            elif action_type == 'file_delete':
+                # Extract filename from command
+                import re
+                filename_match = re.search(r'(?:delete|remove)\s+(?:file\s+)?(\S+)', original_command.lower())
+                if filename_match:
+                    filename = filename_match.group(1)
+                    return self.plugins['file_manager'].delete(filename)
+                return "Please specify which file to delete."
             
             elif action_type == 'app_launch':
-                app_match = re.search(r'(?:launch|open|start)\s+(\w+)', original_command)
-                if app_match:
-                    app_name = app_match.group(1)
-                    return self.plugins['app_controller'].launch_app(app_name)
+                import re
+                app_patterns = [
+                    r'(?:launch|open|start)\s+(\w+)',
+                    r'open\s+(\w+)\s+app',
+                    r'start\s+(\w+)\s+application'
+                ]
+                
+                for pattern in app_patterns:
+                    app_match = re.search(pattern, original_command.lower())
+                    if app_match:
+                        app_name = app_match.group(1)
+                        return self.plugins['app_controller'].launch_app(app_name)
+                return "Please specify which application to launch."
+            
+            elif action_type == 'app_close':
+                import re
+                app_patterns = [
+                    r'(?:close|quit|exit)\s+(\w+)',
+                    r'close\s+(\w+)\s+app'
+                ]
+                
+                for pattern in app_patterns:
+                    app_match = re.search(pattern, original_command.lower())
+                    if app_match:
+                        app_name = app_match.group(1)
+                        return self.plugins['app_controller'].close_app(app_name)
+                return "Please specify which application to close."
             
             elif action_type == 'web_search':
-                search_match = re.search(r'(?:search|google)\s+(?:for\s+)?(.+)', original_command)
-                if search_match:
-                    query = search_match.group(1)
-                    return self.plugins['web_controller'].search_web(query)
+                import re
+                search_patterns = [
+                    r'(?:search|google)\s+(?:for\s+)?(.+)',
+                    r'look\s+up\s+(.+)',
+                    r'find\s+(?:online\s+)?(.+)'
+                ]
+                
+                for pattern in search_patterns:
+                    search_match = re.search(pattern, original_command.lower())
+                    if search_match:
+                        query = search_match.group(1).strip()
+                        # Remove common stop words from end of query
+                        query = re.sub(r'\s+(?:please|for me|online)$', '', query)
+                        return self.plugins['web_controller'].search_web(query)
+                return "Please specify what to search for."
+            
+            elif action_type == 'web_browse':
+                import re
+                url_match = re.search(r'(?:browse|visit|go to)\s+(\S+)', original_command.lower())
+                if url_match:
+                    url = url_match.group(1)
+                    return self.plugins['web_controller'].browse_url(url)
+                return "Please specify which URL to browse."
             
             elif action_type == 'system_info':
                 return self.plugins['system_info'].get_system_info()
+            
+            elif action_type == 'script_run':
+                # Extract script content or filename
+                import re
+                script_match = re.search(r'(?:python|run)\s+(.+)', original_command)
+                if script_match:
+                    script_content = script_match.group(1)
+                    return self.plugins['script_runner'].run_python(script_content)
+                return "Please specify what script to run."
+            
+            elif action_type == 'organize':
+                # Check for organize downloads specifically
+                if 'download' in original_command.lower():
+                    return self.plugins['automation_manager'].organize_downloads()
+                return "Please specify what to organize."
+            
+            elif action_type == 'screenshot':
+                if self.system_controller:
+                    return self.system_controller.take_screenshot()
+                return "Screenshot functionality requires system permissions."
+            
+            elif action_type == 'file_search':
+                # Handle file search commands like "find smallest file"
+                import subprocess
+                import os
+                
+                if 'smallest' in original_command.lower():
+                    try:
+                        # Find smallest files - use more efficient approach with common directories
+                        search_dirs = [
+                            os.path.expanduser('~/Desktop'),
+                            os.path.expanduser('~/Documents'), 
+                            os.path.expanduser('~/Downloads'),
+                            '/tmp',
+                            '/var/tmp'
+                        ]
+                        
+                        all_files = []
+                        for search_dir in search_dirs:
+                            if os.path.exists(search_dir):
+                                try:
+                                    # Find files in this directory only (not recursive for speed)
+                                    cmd = f"find '{search_dir}' -maxdepth 2 -type f -exec ls -la {{}} + 2>/dev/null | sort -k5 -n | head -5"
+                                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                                    if result.returncode == 0 and result.stdout:
+                                        all_files.extend(result.stdout.strip().split('\n'))
+                                except subprocess.TimeoutExpired:
+                                    continue
+                        
+                        if all_files:
+                            # Sort all results by size
+                            valid_files = []
+                            for line in all_files:
+                                if line.strip():
+                                    parts = line.split()
+                                    if len(parts) >= 9 and parts[4].isdigit():
+                                        size = int(parts[4])
+                                        filename = ' '.join(parts[8:])
+                                        valid_files.append((size, filename))
+                            
+                            # Sort by size and format result
+                            valid_files.sort(key=lambda x: x[0])
+                            formatted_result = "Smallest files found:\n"
+                            for i, (size, filename) in enumerate(valid_files[:10]):
+                                formatted_result += f"{i+1}. {filename} ({size} bytes)\n"
+                            return formatted_result
+                        else:
+                            return "No files found in common directories."
+                    except Exception as e:
+                        return f"Search failed: {str(e)}"
+                
+                elif 'largest' in original_command.lower():
+                    try:
+                        # Find largest files - use more efficient approach with common directories
+                        search_dirs = [
+                            os.path.expanduser('~/Desktop'),
+                            os.path.expanduser('~/Documents'), 
+                            os.path.expanduser('~/Downloads'),
+                            os.path.expanduser('~/Pictures'),
+                            os.path.expanduser('~/Movies')
+                        ]
+                        
+                        all_files = []
+                        for search_dir in search_dirs:
+                            if os.path.exists(search_dir):
+                                try:
+                                    # Find files in this directory (maxdepth 3 for more coverage of large files)
+                                    cmd = f"find '{search_dir}' -maxdepth 3 -type f -exec ls -la {{}} + 2>/dev/null | sort -k5 -nr | head -5"
+                                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                                    if result.returncode == 0 and result.stdout:
+                                        all_files.extend(result.stdout.strip().split('\n'))
+                                except subprocess.TimeoutExpired:
+                                    continue
+                        
+                        if all_files:
+                            # Sort all results by size (largest first)
+                            valid_files = []
+                            for line in all_files:
+                                if line.strip():
+                                    parts = line.split()
+                                    if len(parts) >= 9 and parts[4].isdigit():
+                                        size = int(parts[4])
+                                        filename = ' '.join(parts[8:])
+                                        valid_files.append((size, filename))
+                            
+                            # Sort by size (descending)
+                            valid_files.sort(key=lambda x: x[0], reverse=True)
+                            formatted_result = "Largest files found:\n"
+                            for i, (size, filename) in enumerate(valid_files[:10]):
+                                size_mb = size / (1024 * 1024)
+                                formatted_result += f"{i+1}. {filename} ({size_mb:.2f} MB)\n"
+                            return formatted_result
+                        else:
+                            return "No files found in common directories."
+                    except Exception as e:
+                        return f"Search failed: {str(e)}"
+                
+                else:
+                    # General file search
+                    import re
+                    search_match = re.search(r'(?:find|search|locate)\s+(?:file\s+)?(.+)', original_command.lower())
+                    if search_match:
+                        query = search_match.group(1).strip()
+                        return self.plugins['file_manager'].search_files(query)
+                    return "Please specify what to search for."
+            
+            elif action_type == 'system_search':
+                # Handle system-wide searches
+                import subprocess
+                import os
+                
+                if 'smallest file' in original_command.lower():
+                    try:
+                        # Find smallest files system-wide (efficient approach)
+                        safe_dirs = [
+                            os.path.expanduser('~/Desktop'),
+                            os.path.expanduser('~/Documents'), 
+                            os.path.expanduser('~/Downloads'),
+                            '/tmp',
+                            '/var/tmp',
+                            '/System/Library/CoreServices'
+                        ]
+                        results = []
+                        
+                        for directory in safe_dirs:
+                            if os.path.exists(directory):
+                                try:
+                                    cmd = f"find '{directory}' -maxdepth 2 -type f -exec ls -la {{}} + 2>/dev/null | sort -k5 -n | head -3"
+                                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=8)
+                                    if result.returncode == 0 and result.stdout:
+                                        results.extend(result.stdout.strip().split('\n'))
+                                except subprocess.TimeoutExpired:
+                                    continue
+                        
+                        if results:
+                            # Parse and sort all results
+                            valid_files = []
+                            for line in results:
+                                if line.strip():
+                                    parts = line.split()
+                                    if len(parts) >= 9 and parts[4].isdigit():
+                                        size = int(parts[4])
+                                        filename = ' '.join(parts[8:])
+                                        valid_files.append((size, filename))
+                            
+                            # Sort by size and take smallest
+                            valid_files.sort(key=lambda x: x[0])
+                            formatted_result = "Smallest files found on system:\n"
+                            for i, (size, filename) in enumerate(valid_files[:10]):
+                                formatted_result += f"{i+1}. {filename} ({size} bytes)\n"
+                            return formatted_result
+                        else:
+                            return "No files found or access denied."
+                    except Exception as e:
+                        return f"System search failed: {str(e)}"
+                
+                elif 'largest file' in original_command.lower():
+                    try:
+                        # Find largest files system-wide (efficient approach)
+                        safe_dirs = [
+                            os.path.expanduser('~/Desktop'),
+                            os.path.expanduser('~/Documents'), 
+                            os.path.expanduser('~/Downloads'),
+                            os.path.expanduser('~/Pictures'),
+                            os.path.expanduser('~/Movies'),
+                            '/Applications'
+                        ]
+                        results = []
+                        
+                        for directory in safe_dirs:
+                            if os.path.exists(directory):
+                                try:
+                                    cmd = f"find '{directory}' -maxdepth 3 -type f -exec ls -la {{}} + 2>/dev/null | sort -k5 -nr | head -3"
+                                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=8)
+                                    if result.returncode == 0 and result.stdout:
+                                        results.extend(result.stdout.strip().split('\n'))
+                                except subprocess.TimeoutExpired:
+                                    continue
+                        
+                        if results:
+                            # Parse and sort all results
+                            valid_files = []
+                            for line in results:
+                                if line.strip():
+                                    parts = line.split()
+                                    if len(parts) >= 9 and parts[4].isdigit():
+                                        size = int(parts[4])
+                                        filename = ' '.join(parts[8:])
+                                        valid_files.append((size, filename))
+                            
+                            # Sort by size (largest first)
+                            valid_files.sort(key=lambda x: x[0], reverse=True)
+                            formatted_result = "Largest files found on system:\n"
+                            for i, (size, filename) in enumerate(valid_files[:10]):
+                                size_mb = size / (1024 * 1024)
+                                formatted_result += f"{i+1}. {filename} ({size_mb:.2f} MB)\n"
+                            return formatted_result
+                        else:
+                            return "No files found or access denied."
+                    except Exception as e:
+                        return f"System search failed: {str(e)}"
+                        
+                return "System search completed."
+            
+            elif action_type == 'terminal_command':
+                # Handle direct terminal commands
+                import subprocess
+                
+                # Extract the actual command to run
+                import re
+                
+                # Common patterns for terminal commands
+                terminal_patterns = [
+                    r'run command (.+)',
+                    r'execute (.+)', 
+                    r'terminal (.+)',
+                    original_command.lower()  # Use full command as fallback
+                ]
+                
+                command_to_run = None
+                for pattern in terminal_patterns:
+                    if pattern == original_command.lower():
+                        command_to_run = original_command.lower()
+                        break
+                    else:
+                        match = re.search(pattern, original_command.lower())
+                        if match:
+                            command_to_run = match.group(1)
+                            break
+                
+                if command_to_run:
+                    try:
+                        # Security check: only allow safe commands
+                        safe_commands = ['ls', 'find', 'grep', 'cat', 'head', 'tail', 'sort', 'awk', 'sed', 'wc', 'du', 'df']
+                        cmd_parts = command_to_run.split()
+                        if cmd_parts and cmd_parts[0] in safe_commands:
+                            result = subprocess.run(command_to_run, shell=True, capture_output=True, text=True, timeout=30)
+                            if result.returncode == 0:
+                                return f"Command output:\n{result.stdout}" if result.stdout else "Command completed successfully (no output)."
+                            else:
+                                return f"Command failed with error:\n{result.stderr}" if result.stderr else "Command failed."
+                        else:
+                            return f"Command '{cmd_parts[0] if cmd_parts else command_to_run}' is not allowed for security reasons."
+                    except Exception as e:
+                        return f"Failed to execute command: {str(e)}"
+                
+                return "Please specify a valid terminal command."
             
             return None
             
         except Exception as e:
             logger.error(f"Failed to execute AI suggested action: {str(e)}")
-            return None
+            return f"Action failed: {str(e)}"
     
     def _execute_intent(self, intent_data: Dict[str, Any], context: List[Dict]) -> Optional[str]:
         """Execute an intent understood by AI."""
@@ -737,3 +1402,84 @@ Just tell me what you want to do in natural language!"""
             return self.system_controller.control_window(app_name, action)
         else:
             return "❌ Invalid window control command. Use format: 'control window minimize Safari'"
+    
+    def _handle_operating_system(self, context: List[Dict] = None) -> str:
+        """Handle operating system information requests."""
+        try:
+            import subprocess
+            import platform
+            
+            # Get detailed system information
+            system_name = platform.system()
+            system_release = platform.release()
+            system_version = platform.version()
+            machine = platform.machine()
+            processor = platform.processor()
+            
+            # Get more detailed info using system commands
+            if system_name == "Darwin":  # macOS
+                try:
+                    # Get macOS version info
+                    result = subprocess.run(['sw_vers'], capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        sw_vers_output = result.stdout.strip()
+                        
+                        # Extract version info
+                        lines = sw_vers_output.split('\n')
+                        product_name = ""
+                        product_version = ""
+                        build_version = ""
+                        
+                        for line in lines:
+                            if line.startswith('ProductName:'):
+                                product_name = line.split(':', 1)[1].strip()
+                            elif line.startswith('ProductVersion:'):
+                                product_version = line.split(':', 1)[1].strip()
+                            elif line.startswith('BuildVersion:'):
+                                build_version = line.split(':', 1)[1].strip()
+                        
+                        return f"🖥️ **Operating System Information**\n\n**System:** {product_name} {product_version}\n**Build:** {build_version}\n**Architecture:** {machine}\n**Processor:** {processor}"
+                    
+                except subprocess.TimeoutExpired:
+                    pass
+                except Exception as e:
+                    logger.warning(f"Could not get detailed macOS info: {e}")
+                
+                return f"🖥️ **Operating System Information**\n\n**System:** {system_name} {system_release}\n**Version:** {system_version}\n**Architecture:** {machine}"
+                
+            elif system_name == "Linux":
+                try:
+                    # Try to get distribution info
+                    result = subprocess.run(['lsb_release', '-d'], capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        distro_info = result.stdout.strip().split('\t')[1]
+                        return f"🖥️ **Operating System Information**\n\n**Distribution:** {distro_info}\n**Kernel:** {system_name} {system_release}\n**Architecture:** {machine}"
+                except:
+                    pass
+                
+                return f"🖥️ **Operating System Information**\n\n**System:** {system_name} {system_release}\n**Version:** {system_version}\n**Architecture:** {machine}"
+                
+            elif system_name == "Windows":
+                return f"🖥️ **Operating System Information**\n\n**System:** {system_name} {system_release}\n**Version:** {system_version}\n**Architecture:** {machine}"
+            
+            else:
+                return f"🖥️ **Operating System Information**\n\n**System:** {system_name} {system_release}\n**Version:** {system_version}\n**Architecture:** {machine}"
+                
+        except Exception as e:
+            logger.error(f"Error getting operating system info: {e}")
+            return f"❌ Error getting operating system information: {str(e)}"
+    
+    def _handle_web_browse(self, command: str, context: List[Dict] = None) -> str:
+        """Handle ambiguous web navigation commands with step-by-step logic."""
+        import re
+        # Extract possible site name or keyword
+        url_match = re.search(r'(?:browse|visit|go to|open)\s+(.*?)(?:\s|$)', command.lower())
+        if url_match:
+            site_query = url_match.group(1).strip()
+            # If it looks like a URL, open directly
+            if site_query.startswith(('http://', 'https://')):
+                return self.plugins['web_controller'].browse_url(site_query)
+            # Otherwise, search online for the correct site, then open
+            search_result = self.plugins['web_controller'].search_web(site_query)
+            return f"Ambiguous site request. Searched online for '{site_query}'.\n{search_result}"
+        return "Please specify which website to browse."
