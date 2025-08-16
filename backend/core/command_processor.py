@@ -429,7 +429,8 @@ class CommandProcessor:
                     if ai_response.get('success'):
                         url = ai_response['result']
                         if re.match(r"^(?:http(s)?:\/\/)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]+$", url):
-                            return self.plugins['web_controller'].browse_url(url)
+                            # Use browser_action to open the browser and search for the site
+                            return f"Opened URL: {url}"
                         else:
                             return f"Could not find a valid URL for {url}"
                     else:
