@@ -415,7 +415,29 @@ class CommandProcessor:
     
     def _handle_browse_url(self, url: str, context: List[Dict] = None) -> str:
         """Handle URL browsing commands."""
-        return self.plugins['web_controller'].browse_url(url)
+        import re
+        if re.match(r"^(?:http(s)?:\/\/)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]+$", url):
+            return self.plugins['web_controller'].browse_url(url)
+        else:
+            if self.gemini_ai:
+                try:
+                    ai_response = self.gemini_ai.generate_response(
+                        f"Find the URL for {url}",
+                        context,
+                        self.get_available_actions()
+                    )
+                    if ai_response.get('success'):
+                        url = ai_response['result']
+                        if re.match(r"^(?:http(s)?:\/\/)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]+$", url):
+                            return self.plugins['web_controller'].browse_url(url)
+                        else:
+                            return f"Could not find a valid URL for {url}"
+                    else:
+                        return f"Could not find a valid URL for {url}"
+                except Exception as e:
+                    return f"Error finding URL: {str(e)}"
+            else:
+                return "Gemini AI is not enabled."
     
     def _handle_download(self, url: str, context: List[Dict] = None) -> str:
         """Handle download commands."""
