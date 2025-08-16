@@ -442,8 +442,11 @@ class CommandProcessor:
 
     def _open_url_in_browser(self, url: str) -> str:
         """Open the URL in the browser using browser_action tool."""
-        self.plugins['web_controller'].browse_url(url)
-        return f"Opened URL: {url}"
+        try:
+            self.plugins['web_controller'].browse_url(url)
+            return f"Opened URL: {url}"
+        except Exception as e:
+            return f"Failed to open URL in browser: {str(e)}"
     
     def _handle_download(self, url: str, context: List[Dict] = None) -> str:
         """Handle download commands."""
@@ -1507,7 +1510,25 @@ Just tell me what you want to do in natural language!"""
             # If it looks like a URL, open directly
             if site_query.startswith(('http://', 'https://')):
                 return self.plugins['web_controller'].browse_url(site_query)
-            # Otherwise, search online for the correct site, then open
-            search_result = self.plugins['web_controller'].search_web(site_query)
-            return f"Ambiguous site request. Searched online for '{site_query}'.\n{search_result}"
+            # Otherwise, use Gemini to interpret the request
+            if self.gemini_ai:
+                try:
+                    ai_response = self.gemini_ai.generate_response(
+                        f"Interpret the website request: {site_query}. Provide the full URL if available.",
+                        context,
+                        self.get_available_actions()
+                    )
+                    if ai_response.get('success'):
+                        url = ai_response['result']
+                        if re.match(r"^(?:http(s)?:\/\/)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]+$", url):
+                            return self._open_url_in_browser(url)
+                        else:
+                            search_result = self.plugins['web_controller'].search_web(site_query)
+                            return f"Ambiguous site request. Searched online for '{site_query}'.\n{search_result}"
+                    else:
+                        return f"Could not interpret the website request: {site_query}"
+                except Exception as e:
+                    return f"Error interpreting website request: {str(e)}"
+            else:
+                return "Gemini AI is not enabled."
         return "Please specify which website to browse."
