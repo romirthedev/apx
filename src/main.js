@@ -1,5 +1,6 @@
 const { app, BrowserWindow, globalShortcut, ipcMain, screen } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const Store = require('electron-store');
 const axios = require('axios');
 
@@ -167,36 +168,115 @@ function registerGlobalShortcuts() {
   console.log(`Global shortcut registered: ${shortcut}`);
 }
 
-function startBackend() {
+function resolvePythonExecutable() {
+  // Prefer project virtualenv python if present
+  const venvPython = path.join(__dirname, '..', '.venv', 'bin', 'python');
+  if (process.platform !== 'win32' && fs.existsSync(venvPython)) {
+    console.log(`Using virtualenv Python: ${venvPython}`);
+    return venvPython;
+  }
+  // Fallbacks
+  if (process.platform === 'win32') return 'python';
+  return 'python3';
+}
+
+async function isBackendHealthy() {
+  try {
+    await axios.get(`${BACKEND_URL}/health`, { family: 4, timeout: 2000 });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function startBackend() {
   const { spawn } = require('child_process');
   const backendPath = path.join(__dirname, '..', 'backend', 'main.py');
-  
-  let backendProcess;
-  
-  if (process.platform === 'win32') {
-    backendProcess = spawn('python', [backendPath], { detached: false });
-  } else {
-    backendProcess = spawn('python3', [backendPath], { detached: false });
+
+  if (await isBackendHealthy()) {
+    console.log(`Backend already healthy at ${BACKEND_URL}; not spawning a new one.`);
+    return;
   }
-  
+
+  const pythonExec = resolvePythonExecutable();
+  const projectRoot = path.join(__dirname, '..');
+  console.log(`Spawning backend: ${pythonExec} ${backendPath} --port ${String(BACKEND_PORT)} (cwd=${projectRoot})`);
+  try {
+    if (pythonExec.startsWith('/') && !fs.existsSync(pythonExec)) {
+      console.error(`Python executable not found at ${pythonExec}`);
+    }
+    if (!fs.existsSync(backendPath)) {
+      console.error(`Backend entry not found at ${backendPath}`);
+    }
+  } catch (e) {
+    console.error('Preflight check error:', e);
+  }
+
+  let backendProcess = spawn(
+    pythonExec,
+    [backendPath, '--port', String(BACKEND_PORT)],
+    { detached: false, cwd: projectRoot }
+  );
+
+  backendProcess.on('error', (err) => {
+    console.error('Failed to spawn backend process:', err);
+  });
+
   backendProcess.stdout.on('data', (data) => {
     console.log(`Backend: ${data}`);
   });
-  
+
   backendProcess.stderr.on('data', (data) => {
     console.error(`Backend Error: ${data}`);
   });
-  
+
+  let exitTimer = setTimeout(() => { exitTimer = null; }, 2000);
   backendProcess.on('close', (code) => {
     console.log(`Backend process exited with code ${code}`);
-  });
-  
-  // Cleanup on app exit
-  app.on('before-quit', () => {
-    if (backendProcess) {
-      backendProcess.kill();
+    // Quick-fail fallback: try alternate executables if it died immediately
+    if (exitTimer !== null) {
+      const alternates = process.platform === 'win32' ? ['python'] : ['python3', 'python'];
+      for (const alt of alternates) {
+        if (alt === pythonExec) continue;
+        console.warn(`Retrying backend spawn with alternate executable: ${alt}`);
+        backendProcess = spawn(
+          alt,
+          [backendPath, '--port', String(BACKEND_PORT)],
+          { detached: false, cwd: projectRoot }
+        );
+        backendProcess.on('error', (err) => {
+          console.error('Failed to spawn backend process (alternate):', err);
+        });
+        backendProcess.stdout.on('data', (data) => console.log(`Backend: ${data}`));
+        backendProcess.stderr.on('data', (data) => console.error(`Backend Error: ${data}`));
+        backendProcess.on('close', (code2) => console.log(`Backend process (alternate ${alt}) exited with code ${code2}`));
+        break;
+      }
     }
   });
+
+  // Cleanup on app exit
+  app.on('before-quit', () => {
+    try {
+      if (backendProcess && !backendProcess.killed) {
+        backendProcess.kill();
+      }
+    } catch (e) {
+      console.error('Error killing backend process on quit:', e);
+    }
+  });
+
+  // Poll backend health a few times and log result
+  let attempts = 0;
+  const maxAttempts = 10;
+  const interval = setInterval(async () => {
+    attempts += 1;
+    const healthy = await isBackendHealthy();
+    console.log(`Backend health check attempt ${attempts}/${maxAttempts}: ${healthy ? 'healthy' : 'not yet'}`);
+    if (healthy || attempts >= maxAttempts) {
+      clearInterval(interval);
+    }
+  }, 500);
 }
 
 app.whenReady().then(() => {

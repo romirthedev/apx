@@ -1,7 +1,7 @@
 """Task Planner Module - Three-layer architecture for AI-powered system automation."""
 import logging
 import json
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable
 from core.gemini_ai import GeminiAI
 
 logger = logging.getLogger(__name__)
@@ -9,11 +9,26 @@ logger = logging.getLogger(__name__)
 class TaskPlannerManager:
     """Manages the three-layer architecture for AI-powered system automation."""
     
-    def __init__(self, gemini_ai: GeminiAI, sandbox_mode: bool = True):
-        """Initialize the TaskPlannerManager."""
+    def __init__(
+        self,
+        gemini_ai: GeminiAI,
+        sandbox_mode: bool = True,
+        web_browse_handler: Optional[Callable[[str, List[Dict]], str]] = None,
+    ):
+        """Initialize the TaskPlannerManager.
+
+        Args:
+            gemini_ai: Gemini AI client instance.
+            sandbox_mode: If True, restricts side effects (future use).
+            web_browse_handler: Optional delegate to handle web navigation requests.
+                When provided, ALL web navigation will be routed through this handler
+                (e.g., CommandProcessor._handle_browse_url) to ensure consistent,
+                validated URL resolution.
+        """
         self.gemini_ai = gemini_ai
         self.sandbox_mode = sandbox_mode
         self.task_history = []
+        self.web_browse_handler = web_browse_handler
         logger.info("Task Planner Manager initialized successfully")
     
     def _is_web_navigation_request(self, user_input: str) -> bool:
@@ -32,9 +47,24 @@ class TaskPlannerManager:
         """Handle web navigation requests with AI assistance."""
         try:
             import re
+            logger.info(f"[DEBUG] Handling web navigation request: {user_input}")
+            
+            # Always delegate to the main CommandProcessor's URL handler when available
+            # to avoid naive domain guessing like appending ".com" to arbitrary tokens.
+            if self.web_browse_handler:
+                result_str = self.web_browse_handler(user_input, context or [])
+                return {
+                    'success': True,
+                    'result': result_str,
+                    'metadata': {
+                        'method': 'command_processor_browse',
+                        'actions_performed': [{'type': 'web_browse', 'target': user_input}]
+                    }
+                }
+            
+            # Fallback (should not be used if web_browse_handler is provided):
             from plugins.web_controller import WebController
             web_controller = WebController()
-            logger.info(f"[DEBUG] Handling web navigation request: {user_input}")
             
             # Simple direct URL handling first
             if user_input.startswith(('http://', 'https://')):
@@ -48,25 +78,17 @@ class TaskPlannerManager:
                     }
                 }
             
-            # For other cases, try to extract the site name
-            site_match = re.search(r'(?:browse|open|go to|visit|show me|take me to)\s+([^\s]+)', user_input, re.IGNORECASE)
-            if site_match:
-                site = site_match.group(1)
-                # Add https:// if not present
-                if not site.startswith(('http://', 'https://')):
-                    site = f'https://{site}'
-                if '.' not in site:
-                    site = f'{site}.com'
-                
-                result = web_controller.browse_url(site)
-                return {
-                    'success': True,
-                    'result': result,
-                    'metadata': {
-                        'method': 'simple_browse',
-                        'actions_performed': [{'type': 'web_browse', 'url': site}]
-                    }
+            # For other cases, AVOID naive domain construction like appending ".com".
+            # Use a safe generic web search so the user can pick the correct result.
+            search_result = web_controller.search_web(user_input)
+            return {
+                'success': True,
+                'result': search_result,
+                'metadata': {
+                    'method': 'safe_search_fallback',
+                    'actions_performed': [{'type': 'web_search', 'query': user_input}]
                 }
+            }
             
             # If we get here, we couldn't handle the request
             return {

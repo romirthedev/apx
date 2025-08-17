@@ -1,6 +1,7 @@
 import re
 import json
 import logging
+import urllib.parse
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
@@ -107,7 +108,17 @@ class CommandProcessor:
             
             # General queries
             (r'(?:help|what\s+can\s+you\s+do)', self._handle_help),
-            
+
+            # Web operations (placed BEFORE generic file/app open handlers)
+            # Open explicit URLs like "open https://..." or "open www.example.com"
+            (r'(?:open)\s+((?:https?://|www\.)[^\s]+)', self._handle_browse_url),
+            # Common site intents like "open reddit ..." get routed to web browse
+            # Capture the full target phrase (site plus any trailing query)
+            (r'(?:open)\s+((?:reddit|hacker\s*news|hn|youtube|twitter|x|github|stackoverflow|stack\s*overflow|gmail|google|bing|amazon|linkedin)(?:\s+.+)?)', self._handle_web_browse),
+            (r'(?:search\s+(?:web|google|internet)\s+(?:for\s+)?|google\s+)(.+)', self._handle_web_search),
+            (r'(?:browse|visit|go\s+to)\s+(.+)', self._handle_browse_url),
+            (r'(?:download|get)\s+(.+)', self._handle_download),
+
             # File operations
             (r'(?:open|show|display)\s+(.+)', self._handle_open_file),
             (r'(?:create|make|new)\s+(?:file|folder|directory)\s+(.+)', self._handle_create),
@@ -121,11 +132,6 @@ class CommandProcessor:
             (r'(?:launch|start|open|run)\s+(.+)', self._handle_launch_app),
             (r'(?:close|quit|exit)\s+(.+)', self._handle_close_app),
             (r'(?:switch\s+to|focus\s+on)\s+(.+)', self._handle_switch_app),
-            
-            # Web operations
-            (r'(?:search\s+(?:web|google|internet)\s+(?:for\s+)?|google\s+)(.+)', self._handle_web_search),
-            (r'(?:browse|visit|go\s+to)\s+(.+)', self._handle_browse_url),
-            (r'(?:download|get)\s+(.+)', self._handle_download),
             
             # Script execution
             (r'(?:run|execute)\s+(?:script\s+)?(.+)', self._handle_run_script),
@@ -209,8 +215,8 @@ class CommandProcessor:
         try:
             command_lower = command.strip().lower()
             
-            # Check if AI should handle this command first (prioritize natural language)
-            if self.gemini_ai and self.gemini_ai.should_use_ai(command):
+            # Use Gemini AI exclusively (no rule-based or legacy NLP fallbacks)
+            if self.gemini_ai:
                 try:
                     ai_response = self.gemini_ai.generate_response(
                         command, 
@@ -242,104 +248,19 @@ class CommandProcessor:
                             'metadata': {'method': 'ai_response'}
                         }
                 except Exception as e:
-                    logger.error(f"AI processing failed, falling back to rule-based: {str(e)}")
-            
-            # Try rule-based pattern matching for direct system commands
-            for pattern, handler in self.command_patterns:
-                match = re.search(pattern, command_lower)
-                if match:
-                    logger.info(f"Command '{command}' matched pattern: {pattern}")
-                    logger.info(f"Match groups: {match.groups()}")
-                    try:
-                        result = handler(*match.groups(), context=context)
-                        logger.info(f"Handler {handler.__name__} returned: {result[:100]}...")
-                        return {
-                            'success': True,
-                            'result': result,
-                            'metadata': {'handler': handler.__name__, 'pattern': pattern, 'method': 'rule_based'}
-                        }
-                    except Exception as e:
-                        logger.error(f"Handler {handler.__name__} failed: {str(e)}")
-                        # Continue to AI processing if rule-based fails
-                        break
-            
-            # If no pattern matched or rule-based failed, try AI processing (fallback)
-            if self.gemini_ai:
-                try:
-                    # Check if this command should use AI
-                    if self.gemini_ai.should_use_ai(command):
-                        ai_response = self.gemini_ai.generate_response(
-                            command, 
-                            context, 
-                            self.get_available_actions()
-                        )
-                        
-                        if ai_response.get('success'):
-                            # If AI suggests specific actions, try to execute them
-                            if ai_response.get('requires_action') and ai_response.get('suggested_actions'):
-                                action_results = []
-                                for action in ai_response['suggested_actions']:
-                                    action_result = self._execute_ai_suggested_action(action, command)
-                                    if action_result:
-                                        action_results.append(action_result)
-                                
-                                if action_results:
-                                    combined_result = ai_response['response'] + "\n\nActions performed:\n" + "\n".join(action_results)
-                                    return {
-                                        'success': True,
-                                        'result': combined_result,
-                                        'metadata': {'method': 'ai_with_actions', 'actions': action_results}
-                                    }
-                            
-                            # Return AI response
-                            return {
-                                'success': True,
-                                'result': ai_response['response'],
-                                'metadata': {'method': 'ai_response'}
-                            }
-                    
-                    # Try AI-enhanced command understanding for ambiguous commands
-                    understanding = self.gemini_ai.enhance_command_understanding(command)
-                    if understanding.get('success') and understanding['understanding']['confidence'] > 0.7:
-                        intent_data = understanding['understanding']
-                        result = self._execute_intent(intent_data, context)
-                        if result:
-                            return {
-                                'success': True,
-                                'result': result,
-                                'metadata': {'method': 'ai_understanding', 'intent': intent_data}
-                            }
-                    
-                except Exception as e:
                     logger.error(f"AI processing failed: {str(e)}")
-                    # Fall back to NLP processing
-            
-            # Fall back to original NLP processing
-            try:
-                intent = self.nlp_processor.extract_intent(command_lower, context)
-                result = self._handle_intent(intent, context)
-                return {
-                    'success': True,
-                    'result': result,
-                    'metadata': {'nlp_intent': intent, 'method': 'nlp_fallback'}
-                }
-            except Exception as e:
-                logger.error(f"NLP processing failed: {str(e)}")
-                
-                # Final fallback: AI help if available
-                if self.gemini_ai:
-                    help_response = self.gemini_ai.get_contextual_help(command, self.get_available_actions())
                     return {
-                        'success': True,
-                        'result': help_response,
-                        'metadata': {'method': 'ai_help'}
+                        'success': False,
+                        'result': 'AI processing failed. Please rephrase or try again.',
+                        'metadata': {'method': 'gemini_ai_failed', 'error': str(e)}
                     }
-                
-                return {
-                    'success': False,
-                    'result': "I couldn't understand that command. Try being more specific or use 'help' to see what I can do.",
-                    'metadata': {'nlp_error': str(e), 'method': 'fallback'}
-                }
+            
+            # If Gemini AI is not available, do not fall back to NLP or rule-based.
+            return {
+                'success': False,
+                'result': 'AI (Gemini) is not available. Please configure the Gemini API key in settings.',
+                'metadata': {'method': 'no_ai_available'}
+            }
         
         except Exception as e:
             logger.error(f"Command processing failed: {str(e)}")
@@ -413,32 +334,188 @@ class CommandProcessor:
         """Handle web search commands."""
         return self.plugins['web_controller'].search_web(query)
     
-    def _handle_browse_url(self, url: str, context: List[Dict] = None) -> str:
-        """Handle URL browsing commands."""
-        import re
-        if re.match(r"^(?:http(s)?:\/\/)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]+$", url):
+    def _handle_web_browse(self, target: str, context: List[Dict] = None) -> str:
+        """Handle site-intent browse commands like 'open twitter AI agents'.
+        Cleans the phrase and routes to the enhanced URL resolver.
+        """
+        try:
+            text = (target or '').strip()
+            # Remove trailing politeness
+            text = re.sub(r"\s+(?:please|thanks|thank you)\.?$", '', text, flags=re.IGNORECASE).strip()
+            return self._handle_browse_url(text, context=context)
+        except Exception as e:
+            logger.error(f"_handle_web_browse failed: {e}")
+            return self.plugins['web_controller'].search_web(target or '')
+
+    def _handle_browse_url(self, url_or_query: str, context: List[Dict] = None) -> str:
+        """Handle URL browsing commands.
+        Accepts full URLs, bare domains, or natural language like 'open reddit about colored tshirts'.
+        """
+        # Normalize
+        text = (url_or_query or '').strip().strip(" \"'.,!")
+
+        # If looks like a full URL or bare domain, normalize and open
+        url_pattern = r"^(?:https?://)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]*$"
+        if re.match(url_pattern, text):
+            url = text if text.startswith(('http://', 'https://')) else f"https://{text}"
+            logger.info(f"[BROWSE] Direct URL detected -> {url}")
             return self.plugins['web_controller'].browse_url(url)
-        else:
-            if self.gemini_ai:
-                try:
-                    ai_response = self.gemini_ai.generate_response(
-                        f"Find the URL for {url}",
-                        context,
-                        self.get_available_actions()
-                    )
-                    if ai_response.get('success'):
-                        url = ai_response['result']
-                        if re.match(r"^(?:http(s)?:\/\/)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]+$", url):
-                            # Use browser_action to open the browser and navigate to the URL
-                            return self._open_url_in_browser(url)
-                        else:
-                            return f"Could not find a valid URL for {url}"
-                    else:
-                        return f"Could not find a valid URL for {url}"
-                except Exception as e:
-                    return f"Error finding URL: {str(e)}"
-            else:
-                return "Gemini AI is not enabled."
+
+        # Prefer site-native search when an explicit site is mentioned
+        lower = text.lower()
+        site_aliases = {
+            'twitter': ['twitter', 'x.com', 'x ' , ' on x', ' on twitter'],
+            'linkedin': ['linkedin', 'linked in'],
+            'reddit': ['reddit'],
+            'youtube': ['youtube', 'yt'],
+            'github': ['github'],
+            'stackoverflow': ['stackoverflow', 'stack overflow', 'stack-overflow'],
+            'hackernews': ['hacker news', 'hn', 'news.ycombinator.com'],
+            'medium': ['medium'],
+            'producthunt': ['product hunt', 'producthunt']
+        }
+
+        def detect_site(s: str) -> Optional[str]:
+            for key, aliases in site_aliases.items():
+                for a in aliases:
+                    if a in s:
+                        return key
+            # Also catch patterns like "on twitter" or "in linkedin"
+            m = re.search(r"(?:on|in|at)\s+([a-z\.-]+)", s)
+            if m:
+                token = m.group(1)
+                for key, aliases in site_aliases.items():
+                    if token in aliases or token == key:
+                        return key
+            return None
+
+        def strip_site_and_fillers(s: str, site_key: str) -> str:
+            # Remove leading verbs
+            s = re.sub(r"^(?:open|browse|visit|go to|search)\s+", '', s).strip()
+            # Remove site mention phrases like "on twitter", "in linkedin"
+            site_patterns = ['on', 'in', 'at', 'from', 'for']
+            for sp in site_patterns:
+                s = re.sub(rf"\b{sp}\s+{site_key}\b", '', s)
+            # Also remove all aliases tokens
+            for alias in site_aliases.get(site_key, []):
+                s = s.replace(alias, '')
+            # Remove common filler phrases
+            s = re.sub(r"\b(posts|post|articles|article)\b", '', s)
+            s = re.sub(r"\babout\b", '', s)
+            # Clean extra spaces
+            s = re.sub(r"\s+", ' ', s).strip()
+            return s
+
+        site_key = detect_site(lower)
+
+        def build_site_url(site: str, query: str) -> Optional[str]:
+            q = urllib.parse.quote_plus(query) if query else ''
+            if site == 'twitter':
+                return f"https://twitter.com/search?q={q}&src=typed_query"
+            if site == 'linkedin':
+                return f"https://www.linkedin.com/search/results/content/?keywords={q}"
+            if site == 'reddit':
+                return f"https://www.reddit.com/search/?q={q}"
+            if site == 'youtube':
+                return f"https://www.youtube.com/results?search_query={q}"
+            if site == 'github':
+                return f"https://github.com/search?q={q}"
+            if site == 'stackoverflow':
+                return f"https://stackoverflow.com/search?q={q}"
+            if site == 'hackernews':
+                return f"https://hn.algolia.com/?q={q}"
+            if site == 'medium':
+                return f"https://medium.com/search?q={q}"
+            if site == 'producthunt':
+                return f"https://www.producthunt.com/search?q={q}"
+            return None
+
+        if site_key:
+            topic = strip_site_and_fillers(lower, site_key)
+            # Build site-native search even if topic is empty to avoid opening the bare homepage
+            built = build_site_url(site_key, topic)
+            if built:
+                logger.info(f"[BROWSE] Site-native search for '{site_key}' with topic '{topic}' -> {built}")
+                return self.plugins['web_controller'].browse_url(built)
+
+        # 1) Ask Gemini to produce the exact URL to open for this phrase (no explicit site or builder failed)
+        if self.gemini_ai:
+            try:
+                prompt = (
+                    "You are a URL resolver. Given a user request, output ONE final URL to open in a web browser "
+                    "that best achieves the request. If a site requires a search URL, return the correct search URL "
+                    "for that site. Output ONLY the URL, no extra text.\n\n"
+                    f"User request: {text}"
+                )
+                ai_response = self.gemini_ai.generate_response(prompt, context or [], self.get_available_actions())
+
+                # Accept either 'result' or 'response' then extract a URL
+                possible = ai_response.get('result') or ai_response.get('response') or ''
+                if isinstance(possible, dict):
+                    possible = json.dumps(possible)
+
+                # Extract first URL-looking token
+                url_match = re.search(r"(https?://[^\s]+)", possible)
+                candidate = url_match.group(1) if url_match else possible.strip()
+
+                if candidate:
+                    # Remove any surrounding punctuation
+                    candidate = candidate.strip(" \"'.,!()[]{}")
+                    if re.match(r"^https?://[\w.-]+(?:\.[\w\.-]+)+", candidate):
+                        # If we detected a site intent earlier, ensure candidate domain matches
+                        if site_key:
+                            from urllib.parse import urlparse
+                            cand_host = urlparse(candidate).netloc.lower()
+                            site_host_map = {
+                                'twitter': 'twitter.com',
+                                'linkedin': 'www.linkedin.com',
+                                'reddit': 'www.reddit.com',
+                                'youtube': 'www.youtube.com',
+                                'github': 'github.com',
+                                'stackoverflow': 'stackoverflow.com',
+                                'hackernews': 'news.ycombinator.com',
+                                'medium': 'medium.com',
+                                'producthunt': 'www.producthunt.com'
+                            }
+                            expected = site_host_map.get(site_key)
+                            if expected and expected not in cand_host:
+                                logger.warning(f"[BROWSE] Gemini candidate domain mismatch. expected~{expected} got {cand_host}. Falling back to site-native builder.")
+                                # Mismatch: prefer site-native builder instead of wrong domain like ai.com or posts.com
+                                built = build_site_url(site_key, strip_site_and_fillers(lower, site_key))
+                                if built:
+                                    logger.info(f"[BROWSE] Fallback site-native URL -> {built}")
+                                    return self.plugins['web_controller'].browse_url(built)
+                            logger.info(f"[BROWSE] Gemini candidate accepted -> {candidate}")
+                        return self.plugins['web_controller'].browse_url(candidate)
+                    # If it looks like a domain without scheme
+                    if re.match(r"^[\w.-]+\.[a-zA-Z]{2,}(/.*)?$", candidate):
+                        fixed = f"https://{candidate}"
+                        logger.info(f"[BROWSE] Gemini candidate looked like bare domain, adding scheme -> {fixed}")
+                        return self.plugins['web_controller'].browse_url(fixed)
+            except Exception as e:
+                logger.warning(f"[BROWSE] Gemini URL resolution failed: {e}")
+
+        # 2) Fallback: detect a domain and create a site: search query
+        domain_match = re.search(r"(?:on|in|at|from|for)\s+([a-z0-9.-]+\.[a-z]{2,})(?:\b|/)", lower)
+        domain = domain_match.group(1) if domain_match else None
+        if not domain:
+            # Try to find any domain-like token anywhere
+            any_domain = re.search(r"([a-z0-9.-]+\.[a-z]{2,})(?:\b|/)", lower)
+            domain = any_domain.group(1) if any_domain else None
+
+        if domain:
+            # Remove domain reference words to form the topic
+            topic = re.sub(rf"\b(?:on|in|at|from|for)\s+{re.escape(domain)}\b", "", lower).strip()
+            if not topic:
+                topic = lower
+            q = urllib.parse.quote_plus(f"site:{domain} {topic}")
+            google_url = f"https://www.google.com/search?q={q}"
+            logger.info(f"[BROWSE] Fallback site: search -> {google_url}")
+            return self.plugins['web_controller'].browse_url(google_url)
+
+        # Fallback: perform a web search with the phrase
+        logger.info(f"[BROWSE] Fallback generic web search for '{text}'")
+        return self.plugins['web_controller'].search_web(text)
 
     def _open_url_in_browser(self, url: str) -> str:
         """Open the URL in the browser using browser_action tool."""
@@ -831,7 +908,6 @@ Just tell me what you want to do in natural language!"""
                     filename = action['filename']
                 else:
                     # Extract filename from original command
-                    import re
                     filename_patterns = [
                         r'create (?:file |)([^\s]+\.[\w]+)',
                         r'make (?:file |)([^\s]+\.[\w]+)', 
@@ -854,7 +930,6 @@ Just tell me what you want to do in natural language!"""
             
             elif action_type == 'file_open':
                 # Extract filename from command
-                import re
                 filename_match = re.search(r'(?:open|show|display)\s+(?:file\s+)?(\S+)', original_command.lower())
                 if filename_match:
                     filename = filename_match.group(1)
@@ -863,7 +938,6 @@ Just tell me what you want to do in natural language!"""
             
             elif action_type == 'file_edit':
                 # Extract filename from command
-                import re
                 filename_match = re.search(r'(?:edit|modify|update)\s+(?:file\s+)?(\S+)', original_command.lower())
                 if filename_match:
                     filename = filename_match.group(1)
@@ -872,7 +946,6 @@ Just tell me what you want to do in natural language!"""
             
             elif action_type == 'file_delete':
                 # Extract filename from command
-                import re
                 filename_match = re.search(r'(?:delete|remove)\s+(?:file\s+)?(\S+)', original_command.lower())
                 if filename_match:
                     filename = filename_match.group(1)
@@ -880,7 +953,6 @@ Just tell me what you want to do in natural language!"""
                 return "Please specify which file to delete."
             
             elif action_type == 'app_launch':
-                import re
                 app_patterns = [
                     r'(?:launch|open|start)\s+(\w+)',
                     r'open\s+(\w+)\s+app',
@@ -895,7 +967,6 @@ Just tell me what you want to do in natural language!"""
                 return "Please specify which application to launch."
             
             elif action_type == 'app_close':
-                import re
                 app_patterns = [
                     r'(?:close|quit|exit)\s+(\w+)',
                     r'close\s+(\w+)\s+app'
@@ -909,7 +980,6 @@ Just tell me what you want to do in natural language!"""
                 return "Please specify which application to close."
             
             elif action_type == 'web_search':
-                import re
                 search_patterns = [
                     r'(?:search|google)\s+(?:for\s+)?(.+)',
                     r'look\s+up\s+(.+)',
@@ -926,11 +996,13 @@ Just tell me what you want to do in natural language!"""
                 return "Please specify what to search for."
             
             elif action_type == 'web_browse':
-                import re
-                url_match = re.search(r'(?:browse|visit|go to)\s+(\S+)', original_command.lower())
-                if url_match:
-                    url = url_match.group(1)
-                    return self.plugins['web_controller'].browse_url(url)
+                # Capture the full target phrase after the browsing verb and route through _handle_browse_url
+                target_match = re.search(r'(?:browse|visit|go to|open)\s+(.+)$', original_command.strip(), flags=re.IGNORECASE)
+                if target_match:
+                    target = target_match.group(1).strip()
+                    # Remove trailing politeness or filler
+                    target = re.sub(r'\s+(please|thanks|thank you)\.?$', '', target, flags=re.IGNORECASE).strip()
+                    return self._handle_browse_url(target)
                 return "Please specify which URL to browse."
             
             elif action_type == 'system_info':
@@ -938,7 +1010,6 @@ Just tell me what you want to do in natural language!"""
             
             elif action_type == 'script_run':
                 # Extract script content or filename
-                import re
                 script_match = re.search(r'(?:python|run)\s+(.+)', original_command)
                 if script_match:
                     script_content = script_match.group(1)
@@ -1054,7 +1125,6 @@ Just tell me what you want to do in natural language!"""
                 
                 else:
                     # General file search
-                    import re
                     search_match = re.search(r'(?:find|search|locate)\s+(?:file\s+)?(.+)', original_command.lower())
                     if search_match:
                         query = search_match.group(1).strip()
@@ -1164,7 +1234,6 @@ Just tell me what you want to do in natural language!"""
                 import subprocess
                 
                 # Extract the actual command to run
-                import re
                 
                 # Common patterns for terminal commands
                 terminal_patterns = [
@@ -1500,32 +1569,4 @@ Just tell me what you want to do in natural language!"""
             logger.error(f"Error getting operating system info: {e}")
             return f"❌ Error getting operating system information: {str(e)}"
     
-    def _handle_web_browse(self, command: str, context: List[Dict] = None) -> str:
-        """Handle ambiguous web navigation commands with step-by-step logic."""
-        import re
-        # Extract possible site name or keyword
-        url_match = re.search(r'(?:browse|visit|go to|open)\s+(.*?)(?:\s|$)', command.lower())
-        if url_match:
-            site_query = url_match.group(1).strip()
-            # If it looks like a URL, open directly
-            if site_query.startswith(('http://', 'https://')):
-                return self.plugins['web_controller'].browse_url(site_query)
-            # Otherwise, use Gemini to interpret the request
-            if self.gemini_ai and self.task_planner:
-                try:
-                    task_result = self.task_planner.process_user_request(command, context)
-                    result = {
-                        'success': task_result.get('success', False),
-                        'result': task_result.get('response', ''),
-                        'metadata': {
-                            'method': 'task_planner',
-                            'actions_performed': task_result.get('actions_performed', []),
-                            'execution_time': task_result.get('execution_time', 0)
-                        }
-                    }
-                    return result['result']
-                except Exception as e:
-                    return f"Error interpreting website request: {str(e)}"
-            else:
-                return "Gemini AI and Task Planner are not enabled."
-        return "Please specify which website to browse."
+    

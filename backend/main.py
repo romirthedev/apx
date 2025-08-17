@@ -43,22 +43,9 @@ class CluelyBackend:
             action_logger=self.action_logger
         )
         
-        # Initialize the advanced task planner system (AI + Execution)
-        try:
-            from core.gemini_ai import GeminiAI
-            from core.task_planner import TaskPlannerManager
-            
-            api_key = self.config.get_gemini_api_key()
-            if api_key:
-                gemini_ai = GeminiAI(api_key=api_key)
-                self.task_planner = TaskPlannerManager(gemini_ai=gemini_ai)
-                logger.info("Task Planner Manager initialized successfully")
-            else:
-                logger.warning("Gemini API key not found, Task Planner will not be available")
-                self.task_planner = None
-        except Exception as e:
-            logger.error(f"Failed to initialize Task Planner: {str(e)}")
-            self.task_planner = None
+        # Disable Task Planner entirely (force all commands through CommandProcessor)
+        self.task_planner = None
+        logger.info("Task Planner disabled at startup: all commands handled by CommandProcessor")
         
         # Context storage for conversation continuity
         self.context_storage: Dict[str, List[Dict]] = {}
@@ -90,35 +77,9 @@ class CluelyBackend:
                 # Log the incoming command
                 logger.info(f"Processing command: {command}")
                 
-                # Determine whether to use the task planner or regular command processor
-                use_task_planner = self.task_planner is not None
-                
-                # Enhanced: Always use AI planner for ambiguous web navigation requests
-                web_keywords = ["go to", "open", "search", "visit", "navigate"]
-                is_web_request = any(kw in command.lower() for kw in web_keywords)
-                has_url = any(proto in command.lower() for proto in ["http://", "https://", ".com", ".org", ".net"])
-                
-                if use_task_planner:
-                    words = command.split()
-                    has_conjunction = any(conj in command.lower() for conj in ["and", "then", "after"])
-                    is_complex = len(words) > 8 or has_conjunction
-                    # Route ambiguous web requests to AI planner even if not complex
-                    if is_complex or (is_web_request and not has_url):
-                        logger.info(f"Using Task Planner for request: {command}")
-                        task_result = self.task_planner.process_user_request(command, context)
-                        result = {
-                            'success': task_result.get('success', False),
-                            'result': task_result.get('response', ''),
-                            'metadata': {
-                                'method': 'task_planner',
-                                'actions_performed': task_result.get('actions_performed', []),
-                                'execution_time': task_result.get('execution_time', 0)
-                            }
-                        }
-                    else:
-                        result = self.command_processor.process(command, context)
-                else:
-                    result = self.command_processor.process(command, context)
+                # All commands go through CommandProcessor (Task Planner bypassed)
+                logger.info("Task Planner disabled: routing directly to CommandProcessor")
+                result = self.command_processor.process(command, context)
                 
                 # Log the result for debugging
                 logger.info(f"Command result: success={result.get('success')}, method={result.get('metadata', {}).get('method')}")
