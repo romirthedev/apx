@@ -7,14 +7,15 @@ import traceback
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from quart import Quart, request, jsonify
+from quart_cors import cors
 import threading
 
 # Import core modules
 from core.command_processor import CommandProcessor
 from core.action_logger import ActionLogger
 from core.security_manager import SecurityManager
+from core.gemini_ai import GeminiAI
 from utils.config import Config
 
 # Configure logging
@@ -31,8 +32,7 @@ logger = logging.getLogger(__name__)
 
 class CluelyBackend:
     def __init__(self):
-        self.app = Flask(__name__)
-        CORS(self.app)
+        self.app = cors(Quart(__name__))
         
         # Initialize core components
         self.config = Config()
@@ -42,6 +42,20 @@ class CluelyBackend:
             security_manager=self.security_manager,
             action_logger=self.action_logger
         )
+        
+        # Initialize Gemini AI (for first-pass intent classification and chat responses)
+        self.gemini_ai = None
+        try:
+            gemini_api_key = self.config.get('apis.gemini.api_key')
+            gemini_enabled = self.config.get('apis.gemini.enabled', True)
+            if gemini_api_key and gemini_enabled:
+                self.gemini_ai = GeminiAI(gemini_api_key)
+                logger.info("Gemini AI initialized for front-door intent classification")
+            else:
+                logger.info("Gemini AI disabled or missing API key; skipping AI front-door classification")
+        except Exception as e:
+            logger.error(f"Failed to initialize Gemini AI: {e}")
+            self.gemini_ai = None
         
         # Disable Task Planner entirely (force all commands through CommandProcessor)
         self.task_planner = None
@@ -54,7 +68,7 @@ class CluelyBackend:
         
     def _setup_routes(self):
         @self.app.route('/health', methods=['GET'])
-        def health_check():
+        async def health_check():
             return jsonify({
                 'status': 'healthy',
                 'timestamp': datetime.now().isoformat(),
@@ -62,9 +76,9 @@ class CluelyBackend:
             })
         
         @self.app.route('/command', methods=['POST'])
-        def process_command():
+        async def process_command():
             try:
-                data = request.get_json()
+                data = await request.get_json()
                 command = data.get('command', '').strip()
                 context = data.get('context', [])
                 
@@ -77,9 +91,48 @@ class CluelyBackend:
                 # Log the incoming command
                 logger.info(f"Processing command: {command}")
                 
-                # All commands go through CommandProcessor (Task Planner bypassed)
-                logger.info("Task Planner disabled: routing directly to CommandProcessor")
-                result = self.command_processor.process(command, context)
+                # Front-door: pass raw input to AI for intent classification
+                ai_first = True
+                used_ai_chat = False
+                ai_metadata: Dict[str, Any] = {}
+                if ai_first and self.gemini_ai is not None:
+                    try:
+                        classify = self.gemini_ai.classify_intent(command)
+                        ai_metadata = {
+                            'method': 'gemini_ai',
+                            'classifier': classify
+                        }
+                        # Treat as chat if AI says chat and is reasonably confident and no action required
+                        if classify.get('success') and classify.get('type') == 'chat' and not classify.get('requires_action', False) and classify.get('confidence', 0.0) >= 0.6:
+                            ai_resp = self.gemini_ai.generate_response(
+                                user_input=command,
+                                context=context,
+                                available_actions=self.command_processor.get_capabilities()
+                            )
+                            used_ai_chat = True
+                            result = {
+                                'success': ai_resp.get('success', True),
+                                'result': ai_resp.get('response', ''),
+                                'metadata': {
+                                    'method': 'gemini_ai_chat',
+                                    'ai_frontdoor': ai_metadata
+                                }
+                            }
+                        else:
+                            logger.info("Classifier indicates command or low confidence; delegating to CommandProcessor")
+                    except Exception as e:
+                        logger.warning(f"AI front-door classification failed: {e}")
+                
+                # If we didn't already answer via AI chat, route to CommandProcessor
+                if not used_ai_chat:
+                    logger.info("Task Planner disabled: routing directly to CommandProcessor")
+                    result = self.command_processor.process(command, context)
+                    # Merge AI metadata if present
+                    if ai_metadata:
+                        meta = result.get('metadata', {})
+                        # Only annotate; do not overwrite CommandProcessor method
+                        meta.setdefault('ai_frontdoor', ai_metadata)
+                        result['metadata'] = meta
                 
                 # Log the result for debugging
                 logger.info(f"Command result: success={result.get('success')}, method={result.get('metadata', {}).get('method')}")
@@ -108,7 +161,7 @@ class CluelyBackend:
                 # Determine if this was an AI response
                 metadata = result.get('metadata', {})
                 method = metadata.get('method', 'unknown')
-                is_ai_response = method in ['ai_response', 'ai_with_actions', 'ai_help', 'ai_understanding', 'gemini_ai', 'task_planner']
+                is_ai_response = method in ['ai_response', 'ai_with_actions', 'ai_help', 'ai_understanding', 'gemini_ai', 'task_planner'] or bool(result.get('metadata', {}).get('ai_frontdoor'))
                 
                 response_data = {
                     'success': result.get('success', False),
@@ -136,9 +189,9 @@ class CluelyBackend:
                 })
         
         @self.app.route('/command/confirm', methods=['POST'])
-        def confirm_command():
+        async def confirm_command():
             try:
-                data = request.get_json()
+                data = await request.get_json()
                 cache_key = data.get('cache_key', '')
                 confirmed = data.get('confirmed', False)
                 original_command = data.get('original_command', '')
@@ -208,16 +261,16 @@ class CluelyBackend:
                 })
         
         @self.app.route('/context/clear', methods=['POST'])
-        def clear_context():
+        async def clear_context():
             try:
-                session_id = request.get_json().get('session_id', 'default')
+                session_id = (await request.get_json()).get('session_id', 'default')
                 self.context_storage[session_id] = []
                 return jsonify({'success': True})
             except Exception as e:
                 return jsonify({'success': False, 'error': str(e)})
         
         @self.app.route('/logs', methods=['GET'])
-        def get_logs():
+        async def get_logs():
             try:
                 limit = request.args.get('limit', 50, type=int)
                 logs = self.action_logger.get_recent_logs(limit)
@@ -226,20 +279,20 @@ class CluelyBackend:
                 return jsonify({'success': False, 'error': str(e)})
         
         @self.app.route('/capabilities', methods=['GET'])
-        def get_capabilities():
+        async def get_capabilities():
             return jsonify({
                 'success': True,
                 'capabilities': self.command_processor.get_capabilities()
             })
     
-    def run(self, host='localhost', port=8888, debug=False):
+    def run(self, host='0.0.0.0', port=8888):
         logger.info(f"Starting Cluely backend on {host}:{port}")
         
         # Check for required permissions
         if not self.security_manager.check_permissions():
             logger.warning("Some required permissions are missing. App functionality may be limited.")
         
-        self.app.run(host=host, port=port, debug=debug, threaded=True)
+        self.app.run(host=host, port=port)
 
 def main():
     import argparse
@@ -298,14 +351,14 @@ def main():
                 )
                 
                 with daemon_context:
-                    backend.run(host=args.host, port=args.port, debug=args.debug)
+                    backend.run(host=args.host, port=args.port)
             except ImportError:
                 logger.warning("python-daemon not available. Running in background mode without full daemonization.")
                 # Run in background without full daemonization
-                backend.run(host=args.host, port=args.port, debug=args.debug)
+                backend.run(host=args.host, port=args.port)
         else:
             logger.info("Starting Cluely backend in foreground mode...")
-            backend.run(host=args.host, port=args.port, debug=args.debug)
+            backend.run(host=args.host, port=args.port)
             
     except KeyboardInterrupt:
         logger.info("Backend shutting down...")

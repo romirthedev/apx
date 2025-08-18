@@ -68,8 +68,34 @@ SYSTEM ACCESS:
 Be direct, immediate, and action-oriented. Users expect you to DO things, not discuss them. For ambiguous web requests, always search online for the correct site before navigating. Reason in steps and execute each step directly."""
 
     def generate_response(self, user_input: str, context: List[Dict] = None, available_actions: List[str] = None) -> Dict[str, Any]:
-        """Generate an AI response using Gemini."""
+        """Generate an AI response using Gemini with fallback to simple responses."""
+        # Handle common queries without API call first
+        lower_input = user_input.lower()
+        
+        # Common queries with direct responses
+        if any(phrase in lower_input for phrase in ['what apps', 'which apps', 'connect with']):
+            return {
+                'response': "I can work with various applications including browsers, messaging apps, productivity tools, and more. Here are some examples:\n\n"
+                          "• Browsers: Chrome, Safari, Firefox\n"
+                          "• Messaging: iMessage, Slack, Discord\n"
+                          "• Productivity: Calendar, Notes, Reminders\n"
+                          "• Media: Music, Photos, Videos\n\n"
+                          "What would you like me to help you with?"
+            }
+            
+        if any(phrase in lower_input for phrase in ['what can you do', 'help']):
+            return {
+                'response': "I can help you with various tasks including:\n\n"
+                          "• Open applications and websites\n"
+                          "• Search the web\n"
+                          "• Answer questions\n"
+                          "• Set reminders and timers\n"
+                          "• Control media playback\n\n"
+                          "Just let me know what you'd like to do!"
+            }
+        
         try:
+            # Try to use Gemini API if available
             # Build the conversation context
             conversation_history = []
             
@@ -197,6 +223,24 @@ For conversational queries, respond normally without the JSON structure.""")
                             'source': 'fallback_pattern'
                         }],
                         'requires_action': True
+                    }
+                # Handle joke requests specifically
+                elif "joke" in user_input.lower() or "tell me a joke" in user_input.lower():
+                    jokes = [
+                        "Why don't scientists trust atoms? Because they make up everything!",
+                        "Why did the scarecrow win an award? Because he was outstanding in his field!",
+                        "What do you call a fake noodle? An impasta!",
+                        "How does a computer get drunk? It takes screenshots!",
+                        "Why did the programmer quit his job? Because he didn't get arrays!",
+                        "What's a computer's favorite snack? Microchips!",
+                        "Why don't programmers like nature? It has too many bugs!"
+                    ]
+                    import random
+                    return {
+                        'success': True,
+                        'response': random.choice(jokes),
+                        'suggested_actions': [],
+                        'requires_action': False
                     }
             elif "403" in error_message or "401" in error_message:
                 friendly_message = "Authentication error with the Gemini API. Please check your API key configuration."
@@ -425,15 +469,20 @@ For conversational queries, respond normally without the JSON structure.""")
             
             Only respond with valid JSON, no other text.
             """
-            
             response = self.model.generate_content(prompt)
-            result = json.loads(response.text)
-            
+            text = response.text.strip()
+            try:
+                data = json.loads(text)
+            except Exception:
+                import re
+                m = re.search(r"\{[\s\S]*\}", text)
+                if not m:
+                    raise ValueError("No JSON found in understanding response")
+                data = json.loads(m.group(0))
             return {
                 'success': True,
-                'understanding': result
+                'understanding': data
             }
-            
         except Exception as e:
             logger.error(f"Command understanding error: {str(e)}")
             return {
@@ -444,6 +493,67 @@ For conversational queries, respond normally without the JSON structure.""")
                     'target': command,
                     'confidence': 0.1
                 }
+            }
+
+    def classify_intent(self, user_input: str) -> Dict[str, Any]:
+        """Classify raw user input as 'command' (requires action) or 'chat' (no action).
+
+        Returns a dict:
+            {
+              'success': bool,
+              'type': 'command'|'chat',
+              'requires_action': bool,
+              'confidence': float,
+              'reason': str
+            }
+        """
+        try:
+            prompt = (
+                "You are an intent classifier. Decide if the user's message is a command that requires taking an action on the computer, "
+                "or a conversational chat message. Respond ONLY with compact JSON.\n\n"
+                "User message: " + json.dumps(user_input) + "\n\n"
+                "Required JSON schema:\n"
+                "{\n"
+                "  \"type\": \"command\" | \"chat\",\n"
+                "  \"requires_action\": boolean,\n"
+                "  \"confidence\": number (0.0-1.0),\n"
+                "  \"reason\": string\n"
+                "}"
+            )
+            response = self.model.generate_content(prompt)
+            text = response.text.strip()
+
+            # Try direct JSON parse
+            try:
+                data = json.loads(text)
+            except Exception:
+                # Try to extract JSON block
+                import re
+                m = re.search(r"\{[\s\S]*\}", text)
+                if not m:
+                    raise ValueError("No JSON found in classifier response")
+                data = json.loads(m.group(0))
+
+            ctype = str(data.get('type', 'chat')).lower()
+            requires = bool(data.get('requires_action', ctype == 'command'))
+            conf = float(data.get('confidence', 0.5))
+            reason = str(data.get('reason', ''))
+
+            return {
+                'success': True,
+                'type': 'command' if ctype == 'command' else 'chat',
+                'requires_action': requires,
+                'confidence': max(0.0, min(1.0, conf)),
+                'reason': reason
+            }
+        except Exception as e:
+            logger.error(f"Intent classification error: {e}")
+            return {
+                'success': False,
+                'type': 'chat',
+                'requires_action': False,
+                'confidence': 0.0,
+                'reason': str(e)
             }
     
     def get_contextual_help(self, user_query: str, available_commands: List[str]) -> str:

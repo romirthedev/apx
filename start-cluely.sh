@@ -27,7 +27,7 @@ source .venv/bin/activate
 if [ ! -f "backend/.installed" ]; then
     echo "Installing Python dependencies..."
     cd backend
-    ../../../.venv/bin/pip install -r requirements.txt
+    pip install -r requirements.txt
     touch .installed
     cd ..
 fi

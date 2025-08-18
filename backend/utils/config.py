@@ -86,7 +86,7 @@ class Config:
             },
             "apis": {
                 "gemini": {
-                    "api_key": "AIzaSyCD1_EiNAD267_n-2QJi9GpF1VkwW5sH3I",
+                    "api_key": "AIzaSyDuu9LRSg1iSTSwc2m9VW0-I7f65HiQChI",
                     "model": "gemini-2.0-flash-exp",
                     "enabled": True
                 },
@@ -107,6 +107,9 @@ class Config:
         }
         
         self.config = self.load_config()
+        # Ensure Gemini API key and enabled status are set from the user's input
+        self.set('apis.gemini.api_key', 'AIzaSyDuu9LRSg1iSTSwc2m9VW0-I7f65HiQChI')
+        self.set('apis.gemini.enabled', True)
     
     def load_config(self) -> Dict[str, Any]:
         """Load configuration from file or create default."""
@@ -286,15 +289,35 @@ class Config:
             return False
     
     def get_gemini_api_key(self) -> Optional[str]:
-        """Get the Gemini API key from config or environment variable."""
+        """Get the Gemini API key from config or environment variable, with debug logging."""
         # First try environment variable
         api_key = os.environ.get('GEMINI_API_KEY')
         if api_key:
+            logger.debug(f"Gemini API key found in environment variable: {api_key[:6]}... (truncated)")
             return api_key
         
         # Then try config file - directly access config structure first
-        if 'apis' in self.config and 'gemini' in self.config['apis'] and 'api_key' in self.config['apis']['gemini']:
-            return self.config['apis']['gemini']['api_key']
+        try:
+            if 'apis' in self.config and 'gemini' in self.config['apis'] and 'api_key' in self.config['apis']['gemini']:
+                api_key = self.config['apis']['gemini']['api_key']
+                logger.debug(f"Gemini API key found in config['apis']['gemini']: {api_key[:6]}... (truncated)")
+                return api_key
+        except Exception as e:
+            logger.error(f"Error accessing Gemini API key in config: {str(e)}")
         
         # Fall back to dot notation for backward compatibility
-        return self.get('apis.gemini.api_key') or self.get('ai.gemini_api_key') or self.get('api_keys.gemini')
+        api_key = self.get('apis.gemini.api_key')
+        if api_key:
+            logger.debug(f"Gemini API key found via dot notation 'apis.gemini.api_key': {api_key[:6]}... (truncated)")
+            return api_key
+        api_key = self.get('ai.gemini_api_key')
+        if api_key:
+            logger.debug(f"Gemini API key found via dot notation 'ai.gemini_api_key': {api_key[:6]}... (truncated)")
+            return api_key
+        api_key = self.get('api_keys.gemini')
+        if api_key:
+            logger.debug(f"Gemini API key found via dot notation 'api_keys.gemini': {api_key[:6]}... (truncated)")
+            return api_key
+        
+        logger.warning("Gemini API key not found in environment or config!")
+        return None
