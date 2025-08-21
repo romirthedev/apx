@@ -13,6 +13,7 @@ from plugins.system_info import SystemInfo
 from plugins.document_manager import DocumentManager
 from plugins.email_manager import EmailManager
 from plugins.automation_manager import AutomationManager
+from plugins.google_sheets_manager import GoogleSheetsManager
 from core.nlp_processor import NLPProcessor
 from core.gemini_ai import GeminiAI
 from core.macos_permissions import MacOSPermissionsManager
@@ -25,6 +26,7 @@ class CommandProcessor:
         self.security_manager = security_manager
         self.action_logger = action_logger
         self.nlp_processor = NLPProcessor()
+
         
         # Initialize Gemini AI
         from utils.config import Config
@@ -48,6 +50,7 @@ class CommandProcessor:
             'web_controller': WebController(),
             'script_runner': ScriptRunner(),
             'system_info': SystemInfo(),
+            'google_sheets_manager': GoogleSheetsManager(),
             'document_manager': DocumentManager(),
             'email_manager': EmailManager(),
             'automation_manager': AutomationManager()
@@ -91,6 +94,11 @@ class CommandProcessor:
             (r'(?:create|make|new)\s+(?:powerpoint\s+)?(?:presentation|ppt)\s+(.+)', self._handle_create_presentation),
             (r'(?:create|make|new)\s+pdf\s+(.+)', self._handle_create_pdf),
             
+            # Google Sheets operations
+            (r'(?:create|make|new)\s+(?:google\s+)?(?:sheet|spreadsheet)\s+(?:about|for|on)\s+(.+)', self._handle_financial_spreadsheet),
+            (r'(?:create|make|new)\s+(?:google\s+)?(?:sheet|spreadsheet)\s+(.+)', self._handle_create_google_sheet),
+            (r'(?:fill|populate)\s+(?:google\s+)?(?:sheet|spreadsheet)\s+(?:with|using)\s+(.+)', self._handle_fill_google_sheet),
+            
             # Email operations
             (r'(?:compose|write|send)\s+(?:email|mail)\s+(?:to\s+)?(.+)', self._handle_compose_email),
             (r'(?:create|send)\s+(?:meeting\s+)?(?:invite|invitation)\s+(.+)', self._handle_create_meeting),
@@ -105,6 +113,11 @@ class CommandProcessor:
             (r'(?:clean|clear)\s+(?:temp|temporary)\s+files', self._handle_clean_temp),
             (r'(?:list|show)\s+workflows', self._handle_list_workflows),
             (r'(?:run|execute)\s+workflow\s+(.+)', self._handle_run_workflow),
+            
+            # Google Sheets operations
+            (r'(?:create|make|new)\s+(?:google\s+)?(?:sheet|spreadsheet)(?:\s+(?:about|for|on)\s+)?(.+)', self._handle_create_google_sheet),
+            (r'(?:fill|populate)\s+(?:google\s+)?(?:sheet|spreadsheet)\s+(?:with|using)\s+(.+?)\s+(?:data|information|earnings|financials)', self._handle_fill_google_sheet),
+            (r'(?:get|fetch|find)\s+(.+?)\s+(?:earnings|financials|financial\s+data)(?:\s+(?:and|&|\+)\s+(?:create|make|fill)\s+(?:a\s+)?(?:google\s+)?(?:sheet|spreadsheet))?', self._handle_financial_spreadsheet),
             
             # General queries
             (r'(?:help|what\s+can\s+you\s+do)', self._handle_help),
@@ -898,7 +911,8 @@ Just tell me what you want to do in natural language!"""
             "Web browsing and searching",
             "Script execution",
             "System information",
-            "Natural language processing"
+            "Natural language processing",
+            "Google Sheets integration"
         ]
     
     def get_available_actions(self) -> List[str]:
@@ -915,7 +929,8 @@ Just tell me what you want to do in natural language!"""
             "compose emails", "send emails", "create meeting invites",
             "check calendar", "switch Google accounts", "open Gmail",
             "organize downloads", "backup files", "clean temp files",
-            "create daily reports", "run automation workflows"
+            "create daily reports", "run automation workflows",
+            "create Google Sheets", "fill Google Sheets with data", "create financial spreadsheets"
         ]
     
     def _execute_ai_suggested_action(self, action: Dict[str, str], original_command: str) -> Optional[str]:
@@ -1525,6 +1540,63 @@ Just tell me what you want to do in natural language!"""
         else:
             return "❌ Invalid window control command. Use format: 'control window minimize Safari'"
     
+    # Google Sheets handlers
+    def _handle_create_google_sheet(self, sheet_name: str, context: List[Dict] = None) -> str:
+        """Handle Google Sheet creation."""
+        return self.plugins['google_sheets_manager'].create_google_sheet(sheet_name)
+    
+    def _handle_financial_spreadsheet(self, query: str, context: List[Dict] = None) -> str:
+        """Handle financial spreadsheet creation."""
+        # Extract company name from the query
+        company_pattern = r'(microsoft|apple|google|alphabet|amazon|meta|facebook|tesla|netflix|nvidia|amd|intel)'
+        company_match = re.search(company_pattern, query.lower())
+        
+        # Extract data type from the query
+        data_type_pattern = r'(earnings|revenue|profit|sales|growth|financial|income|balance sheet)'
+        data_type_match = re.search(data_type_pattern, query.lower())
+        
+        # Set defaults if not found
+        company = company_match.group(1) if company_match else "company"
+        data_type = data_type_match.group(1) if data_type_match else "earnings"
+        
+        # If no specific company was found, try to extract any company name
+        if company == "company":
+            # Look for any capitalized words that might be company names
+            words = query.split()
+            for word in words:
+                if word[0].isupper() and len(word) > 1 and word.lower() not in ["google", "create", "make", "new", "spreadsheet", "sheet", "about", "for", "on"]:
+                    company = word
+                    break
+        
+        return self.plugins['google_sheets_manager'].create_financial_spreadsheet(company, data_type)
+    
+    # The duplicate method was removed to eliminate duplication
+    
+    def _handle_fill_google_sheet(self, data_description: str, context: List[Dict] = None) -> str:
+        """Handle filling Google Sheet with data."""
+        # Extract company and data type if possible
+        company_pattern = r'(microsoft|apple|google|alphabet|amazon|meta|facebook|tesla|netflix|nvidia|amd|intel)'
+        company_match = re.search(company_pattern, data_description.lower())
+        
+        # Extract data type from the query
+        data_type_pattern = r'(earnings|revenue|profit|sales|growth|financial|income|balance sheet)'
+        data_type_match = re.search(data_type_pattern, data_description.lower())
+        
+        # Set defaults if not found
+        company = company_match.group(1) if company_match else "company"
+        data_type = data_type_match.group(1) if data_type_match else "earnings"
+        
+        # If no specific company was found, try to extract any company name
+        if company == "company":
+            # Look for any capitalized words that might be company names
+            words = data_description.split()
+            for word in words:
+                if word[0].isupper() and len(word) > 1 and word.lower() not in ["google", "create", "make", "new", "spreadsheet", "sheet", "about", "for", "on"]:
+                    company = word
+                    break
+        
+        return self.plugins['google_sheets_manager'].create_financial_spreadsheet(company, data_type)
+    
     def _handle_operating_system(self, context: List[Dict] = None) -> str:
         """Handle operating system information requests."""
         try:
@@ -1586,7 +1658,6 @@ Just tell me what you want to do in natural language!"""
             
             else:
                 return f"🖥️ **Operating System Information**\n\n**System:** {system_name} {system_release}\n**Version:** {system_version}\n**Architecture:** {machine}"
-                
         except Exception as e:
             logger.error(f"Error getting operating system info: {e}")
             return f"❌ Error getting operating system information: {str(e)}"

@@ -162,44 +162,22 @@ For conversational queries, respond normally without the JSON structure.""")
             if not structured_actions:
                 structured_actions = self._extract_actions(ai_response, user_input)
             
-            # Remove any explanatory text if actions are detected
-            if len(structured_actions) > 0:
-                # Keep only result information, strip out explanations
-                stripped_response = ai_response.split("I'll")[0]
-                stripped_response = stripped_response.split("Here's")[0]
-                stripped_response = stripped_response.split("Let me")[0]
-                stripped_response = stripped_response.split("First")[0]
-                stripped_response = stripped_response.split("Now I'll")[0]
-                stripped_response = stripped_response.split("I can")[0]
-                stripped_response = stripped_response.split("I will")[0]
-                
-                # Additional filtering to remove common explanation phrases
-                explanation_phrases = [
-                    "Let me", "I'll", "I will", "Here's", "First", "Now", 
-                    "To ", "I can", "I need to", "This will", "I would", 
-                    "You can", "You could", "would you like", "do you want",
-                    "should I", "I'm going to", "I am going to"
-                ]
-                
-                for phrase in explanation_phrases:
-                    if phrase.lower() in stripped_response.lower():
-                        parts = stripped_response.lower().split(phrase.lower(), 1)
-                        stripped_response = parts[0]
-                
-                # If stripping made it too short, just return action results
-                if len(stripped_response.strip()) < 10:
-                    final_response = "Task completed."
-                else:
-                    final_response = stripped_response.strip()
+            # If structured actions are found, return the raw AI response as the 'response' field
+            if structured_actions:
+                return {
+                    'success': True,
+                    'response': ai_response, # Return the full AI response, which should contain the JSON
+                    'suggested_actions': structured_actions,
+                    'requires_action': True
+                }
             else:
-                final_response = ai_response
-            
-            return {
-                'success': True,
-                'response': final_response,
-                'suggested_actions': structured_actions,
-                'requires_action': len(structured_actions) > 0
-            }
+                # If no structured actions, return the AI response as is
+                return {
+                    'success': True,
+                    'response': ai_response,
+                    'suggested_actions': [],
+                    'requires_action': False
+                }
             
         except Exception as e:
             logger.error(f"Gemini AI error: {str(e)}")

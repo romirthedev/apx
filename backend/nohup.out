@@ -1,0 +1,87 @@
+2025-08-18 21:39:44,061 - utils.config - INFO - Configuration loaded successfully
+2025-08-18 21:39:44,061 - utils.config - INFO - Configuration saved successfully
+2025-08-18 21:39:44,061 - utils.config - INFO - Configuration saved successfully
+2025-08-18 21:39:44,061 - utils.config - INFO - Configuration loaded successfully
+2025-08-18 21:39:44,061 - utils.config - INFO - Configuration saved successfully
+2025-08-18 21:39:44,061 - utils.config - INFO - Configuration saved successfully
+2025-08-18 21:39:44,061 - core.command_processor - INFO - Gemini AI initialized successfully
+2025-08-18 21:39:44,062 - __main__ - INFO - Gemini AI initialized for front-door intent classification
+2025-08-18 21:39:44,062 - __main__ - INFO - Task Planner disabled at startup: all commands handled by CommandProcessor
+2025-08-18 21:39:44,063 - __main__ - INFO - Starting Cluely backend in foreground mode...
+2025-08-18 21:39:44,063 - __main__ - INFO - Starting Cluely backend on localhost:8888
+[2025-08-18 21:39:44 -0700] [93327] [INFO] Running on http://127.0.0.1:8888 (CTRL + C to quit)
+ * Serving Quart app 'main'
+ * Debug mode: False
+ * Please use an ASGI server (e.g. Hypercorn) directly in production
+ * Running on http://localhost:8888 (CTRL + C to quit)
+2025-08-18 21:39:44,074 - hypercorn.error - INFO - Running on http://127.0.0.1:8888 (CTRL + C to quit)
+2025-08-18 21:39:51,200 - __main__ - INFO - Processing command: create_financial_spreadsheet Microsoft earnings annual
+2025-08-18 21:39:51,912 - core.gemini_ai - ERROR - Intent classification error: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+  quota_metric: "generativelanguage.googleapis.com/generate_content_free_tier_requests"
+  quota_id: "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+  quota_dimensions {
+    key: "model"
+    value: "gemini-2.0-flash-exp"
+  }
+  quota_dimensions {
+    key: "location"
+    value: "global"
+  }
+  quota_value: 50
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 8
+}
+]
+2025-08-18 21:39:51,913 - __main__ - INFO - Classifier indicates command or low confidence; delegating to CommandProcessor
+2025-08-18 21:39:51,913 - __main__ - INFO - Task Planner disabled: routing directly to CommandProcessor
+2025-08-18 21:39:51,913 - core.command_processor - INFO - Processing command: create_financial_spreadsheet microsoft earnings annual
+2025-08-18 21:39:52,026 - core.gemini_ai - ERROR - Gemini AI error: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+  quota_metric: "generativelanguage.googleapis.com/generate_content_free_tier_requests"
+  quota_id: "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+  quota_dimensions {
+    key: "model"
+    value: "gemini-2.0-flash-exp"
+  }
+  quota_dimensions {
+    key: "location"
+    value: "global"
+  }
+  quota_value: 50
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 7
+}
+]
+2025-08-18 21:39:52,026 - core.gemini_ai - ERROR - Gemini AI error details: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. [violations {
+  quota_metric: "generativelanguage.googleapis.com/generate_content_free_tier_requests"
+  quota_id: "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+  quota_dimensions {
+    key: "model"
+    value: "gemini-2.0-flash-exp"
+  }
+  quota_dimensions {
+    key: "location"
+    value: "global"
+  }
+  quota_value: 50
+}
+, links {
+  description: "Learn more about Gemini API quotas"
+  url: "https://ai.google.dev/gemini-api/docs/rate-limits"
+}
+, retry_delay {
+  seconds: 7
+}
+]
+2025-08-18 21:39:52,027 - __main__ - INFO - Command result: success=True, method=direct_response
+2025-08-18 21:39:52,038 - core.action_logger - INFO - Logged action: create_financial_spreadsheet Microsoft earnings annual -> True
+[2025-08-18 21:39:52 -0700] [93327] [INFO] 127.0.0.1:57630 POST /command 1.1 200 1275 838317

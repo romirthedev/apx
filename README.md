@@ -196,6 +196,11 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [ ] macOS Shortcuts integration
 - [ ] Chrome extension companion
 
+# How to Start
+## For Backend
+### cd /Users/romirpatel/apx && pkill -f electron || true; pkill -f backend/main.py || true; sleep 1; npm run dev --silent
+## For Frontend, if backend works
+### npm run dev 
 ---
 
 **Made with ❤️ for productivity enthusiasts**

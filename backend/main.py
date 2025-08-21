@@ -7,8 +7,8 @@ import traceback
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-from quart import Quart, request, jsonify
-from quart_cors import cors
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import threading
 
 # Import core modules
@@ -17,6 +17,7 @@ from core.action_logger import ActionLogger
 from core.security_manager import SecurityManager
 from core.gemini_ai import GeminiAI
 from utils.config import Config
+
 
 # Configure logging
 logging.basicConfig(
@@ -32,7 +33,8 @@ logger = logging.getLogger(__name__)
 
 class CluelyBackend:
     def __init__(self):
-        self.app = cors(Quart(__name__))
+        self.app = Flask(__name__)
+        CORS(self.app)
         
         # Initialize core components
         self.config = Config()
@@ -68,7 +70,7 @@ class CluelyBackend:
         
     def _setup_routes(self):
         @self.app.route('/health', methods=['GET'])
-        async def health_check():
+        def health_check():
             return jsonify({
                 'status': 'healthy',
                 'timestamp': datetime.now().isoformat(),
@@ -76,9 +78,9 @@ class CluelyBackend:
             })
         
         @self.app.route('/command', methods=['POST'])
-        async def process_command():
+        def process_command():
             try:
-                data = await request.get_json()
+                data = request.get_json() or {}
                 command = data.get('command', '').strip()
                 context = data.get('context', [])
                 
@@ -189,9 +191,9 @@ class CluelyBackend:
                 })
         
         @self.app.route('/command/confirm', methods=['POST'])
-        async def confirm_command():
+        def confirm_command():
             try:
-                data = await request.get_json()
+                data = request.get_json() or {}
                 cache_key = data.get('cache_key', '')
                 confirmed = data.get('confirmed', False)
                 original_command = data.get('original_command', '')
@@ -261,16 +263,16 @@ class CluelyBackend:
                 })
         
         @self.app.route('/context/clear', methods=['POST'])
-        async def clear_context():
+        def clear_context():
             try:
-                session_id = (await request.get_json()).get('session_id', 'default')
+                session_id = (request.get_json() or {}).get('session_id', 'default')
                 self.context_storage[session_id] = []
                 return jsonify({'success': True})
             except Exception as e:
                 return jsonify({'success': False, 'error': str(e)})
         
         @self.app.route('/logs', methods=['GET'])
-        async def get_logs():
+        def get_logs():
             try:
                 limit = request.args.get('limit', 50, type=int)
                 logs = self.action_logger.get_recent_logs(limit)
@@ -279,7 +281,7 @@ class CluelyBackend:
                 return jsonify({'success': False, 'error': str(e)})
         
         @self.app.route('/capabilities', methods=['GET'])
-        async def get_capabilities():
+        def get_capabilities():
             return jsonify({
                 'success': True,
                 'capabilities': self.command_processor.get_capabilities()
@@ -292,6 +294,7 @@ class CluelyBackend:
         if not self.security_manager.check_permissions():
             logger.warning("Some required permissions are missing. App functionality may be limited.")
         
+        # Use Flask's built-in server for dev
         self.app.run(host=host, port=port)
 
 def main():
