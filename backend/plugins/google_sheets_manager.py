@@ -1,45 +1,3 @@
-import logging
-from typing import Optional
-
-logger = logging.getLogger(__name__)
-
-
-class GoogleSheetsManager:
-    """
-    Minimal stub Google Sheets manager to satisfy imports and provide
-    helpful responses without requiring Google API credentials.
-    """
-
-    def __init__(self, web_search_tool: Optional[object] = None):
-        self.web_search_tool = web_search_tool
-
-    def create_google_sheet(self, sheet_name: str) -> str:
-        name = (sheet_name or 'Untitled').strip()
-        logger.info(f"Stub create Google Sheet called for: {name}")
-        return (
-            f"📄 Requested Google Sheet: '{name}'.\n\n"
-            "This build doesn't include Google API credentials. "
-            "I can open Google Sheets in your browser to create it manually, "
-            "or populate a CSV/Excel locally if you specify columns."
-        )
-
-    def create_financial_spreadsheet(self, company: str, data_type: str) -> str:
-        company_safe = (company or 'company').strip()
-        data_type_safe = (data_type or 'earnings').strip()
-        logger.info(
-            f"Stub create financial spreadsheet called for: company={company_safe}, data_type={data_type_safe}"
-        )
-        hint = (
-            "I'll open a finance search in your browser so you can review data, "
-            "or I can build a local CSV with placeholders."
-        )
-        return (
-            f"📊 Financial Sheet Requested\n\n"
-            f"Company: {company_safe}\n"
-            f"Data: {data_type_safe}\n\n"
-            f"{hint}"
-        )
-
 """Google Sheets Manager Plugin - Create and manage Google Sheets"""
 
 import os
@@ -61,7 +19,7 @@ class GoogleSheetsManager:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
-        self.web_search_tool = web_search_tool if web_search_tool else self.web_search
+        self.web_search_tool = web_search_tool
     
     def create_google_sheet(self, title: str, data: Optional[Dict] = None) -> str:
         """Create a new Google Sheet with data directly in the URL."""

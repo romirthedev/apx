@@ -8,6 +8,8 @@ import os
 import logging
 import time
 from typing import Dict, Any, List, Optional, Tuple
+import pytesseract
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -258,28 +260,35 @@ class MacOSSystemController:
     def read_screen_text(self, region: Tuple[int, int, int, int] = None) -> str:
         """Read text from screen using OCR (requires additional setup)."""
         try:
+            # Define the path for the temporary screenshot
+            temp_screenshot_path = os.path.expanduser("~/Desktop/temp_ocr.png")
+            
             # Take screenshot first
             screenshot_result = self.take_screenshot("temp_ocr.png", region)
             
             if "failed" in screenshot_result.lower():
                 return screenshot_result
             
-            # Try to use macOS built-in OCR via AppleScript (macOS 12+)
-            script = '''
-            tell application "System Events"
-                -- This is a placeholder for OCR functionality
-                -- Would need additional OCR library or service
-                return "OCR functionality requires additional setup"
-            end tell
-            '''
-            
-            # Clean up temp file
+            # Perform OCR using Tesseract
             try:
-                os.remove(os.path.expanduser("~/Desktop/temp_ocr.png"))
-            except:
-                pass
-            
-            return "📖 OCR functionality requires additional setup (try installing tesseract)"
+                # Open the image file
+                img = Image.open(temp_screenshot_path)
+                
+                # Use Tesseract to do OCR on the image
+                text = pytesseract.image_to_string(img)
+                
+                if text.strip():
+                    return f"📖 Extracted text:\n{text}"
+                else:
+                    return "📖 No text found in the specified region."
+            except pytesseract.TesseractNotFoundError:
+                return "❌ Tesseract is not installed or not in your PATH. Please install it to use OCR functionality."
+            except Exception as e:
+                return f"❌ OCR processing failed: {str(e)}"
+            finally:
+                # Clean up temp file
+                if os.path.exists(temp_screenshot_path):
+                    os.remove(temp_screenshot_path)
             
         except Exception as e:
             return f"❌ Screen reading failed: {str(e)}"

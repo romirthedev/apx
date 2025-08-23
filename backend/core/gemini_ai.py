@@ -13,7 +13,7 @@ class GeminiAI:
         genai.configure(api_key=api_key)
         
         # Initialize the model
-        self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        self.model = genai.GenerativeModel('gemini-2.5-flash-lite')
         
         # System prompt to make Gemini understand it's controlling a computer
         self.system_prompt = """You are Cluely, an AI assistant with FULL COMPUTER CONTROL. You have complete access to execute any command on this Mac system.
@@ -82,7 +82,6 @@ Be direct, immediate, and action-oriented. Users expect you to DO things, not di
                           "• Media: Music, Photos, Videos\n\n"
                           "What would you like me to help you with?"
             }
-            
         if any(phrase in lower_input for phrase in ['what can you do', 'help']):
             return {
                 'response': "I can help you with various tasks including:\n\n"
@@ -170,6 +169,7 @@ For conversational queries, respond normally without the JSON structure.""")
                     'suggested_actions': structured_actions,
                     'requires_action': True
                 }
+
             else:
                 # If no structured actions, return the AI response as is
                 return {
@@ -485,6 +485,7 @@ For conversational queries, respond normally without the JSON structure.""")
               'reason': str
             }
         """
+        
         try:
             prompt = (
                 "You are an intent classifier. Decide if the user's message is a command that requires taking an action on the computer, "

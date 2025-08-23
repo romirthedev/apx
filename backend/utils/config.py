@@ -86,8 +86,8 @@ class Config:
             },
             "apis": {
                 "gemini": {
-                    "api_key": "AIzaSyDuu9LRSg1iSTSwc2m9VW0-I7f65HiQChI",
-                    "model": "gemini-2.0-flash-exp",
+                    "api_key": "AIzaSyAu6qCWPMMNxeaxLz_DFCk0HyjfGFSnLQ8",
+                    "model": "gemini-2.5-flash",
                     "enabled": True
                 },
                 "weather": {
@@ -108,7 +108,8 @@ class Config:
         
         self.config = self.load_config()
         # Ensure Gemini API key and enabled status are set from the user's input
-        self.set('apis.gemini.api_key', 'AIzaSyDuu9LRSg1iSTSwc2m9VW0-I7f65HiQChI')
+        self.set('apis.gemini.api_key', 'AIzaSyAu6qCWPMMNxeaxLz_DFCk0HyjfGFSnLQ8')
+        self.set('apis.gemini.model', 'gemini-2.5-flash')
         self.set('apis.gemini.enabled', True)
     
     def load_config(self) -> Dict[str, Any]:
