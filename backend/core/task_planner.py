@@ -230,12 +230,13 @@ class TaskPlannerManager:
                     'actions_performed': [{'type': 'web_browse', 'url': search_query}],
                 }
             if site_key not in site_map and not re.match(url_pattern, search_query):
-                result = web_controller.search_and_resolve_url(site_key)
-                final_response = f"Resolved and opened site for '{site_key}' based on your request: '{user_input}'\n{result}"
-                logger.info(f"[DEBUG] Search and resolve result: {final_response}")
+                # Use the new AI-powered URL resolution method
+                result = web_controller.resolve_and_open_url(user_input, self.gemini_ai)
+                final_response = f"Resolved and opened site for '{user_input}' based on your request: '{user_input}'\n{result}"
+                logger.info(f"[DEBUG] AI URL resolution result: {final_response}")
                 self.task_history.append({
                     'user_input': user_input,
-                    'actions': [{'type': 'web_browse', 'url': site_key}],
+                    'actions': [{'type': 'web_browse', 'url': user_input}],
                     'execution_result': result,
                     'final_response': final_response
                 })
@@ -243,7 +244,7 @@ class TaskPlannerManager:
                     'success': True,
                     'response': final_response,
                     'requires_action': True,
-                    'actions_performed': [{'type': 'web_browse', 'url': site_key}],
+                    'actions_performed': [{'type': 'web_browse', 'url': user_input}],
                 }
             # Fallback: perform a web search
             actions = [

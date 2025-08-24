@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import traceback
 from datetime import datetime
@@ -97,6 +98,10 @@ class CluelyBackend:
                 ai_first = True
                 used_ai_chat = False
                 ai_metadata: Dict[str, Any] = {}
+                
+                # Front-door: pass raw input to AI for intent classification
+                # No special handling for GitHub repository searches - let the command processor handle it
+                
                 if ai_first and self.gemini_ai is not None:
                     try:
                         classify = self.gemini_ai.classify_intent(command)

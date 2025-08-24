@@ -282,7 +282,11 @@
   </style>
 </head>
 <body>
-  <div id="instruction-banner">Cmd+Space: Toggle | Type command and press Enter | Escape: Clear</div>
+  <div id="instruction-banner">
+      <span id="instruction-text">Cmd+Space: Toggle | Type command and press Enter | Escape: Clear</span>
+      <button id="ocr-button" style="margin-left: 10px; padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">Capture & OCR</button>
+    </div>
+  <div id="ocr-result" style="position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); color: #fff; padding: 8px 15px; font-size: 14px; border-radius: 8px; z-index: 9999; box-shadow: 0 2px 10px rgba(0,0,0,0.2); transition: opacity 0.3s ease; user-select: none; opacity: 0; visibility: hidden;"></div>
   
   <div id="input-container">
     <div class="icon">🧠</div>
@@ -332,9 +336,10 @@
       responseOverlay.classList.remove('visible');
     };
     
+    const instructionText = document.getElementById('instruction-text');
     const updateBanner = (text, show = true) => {
       instructionBanner.style.opacity = show ? '1' : '0';
-      if (text) instructionBanner.textContent = text;
+      if (text) instructionText.textContent = text;
     };
 
     const setStatus = (status) => {
@@ -608,6 +613,32 @@
     setStatus('ready');
     commandInput.focus();
     updateBanner("Cmd+Space: Toggle | Type command and press Enter | Escape: Clear");
+
+    const ocrButton = document.getElementById('ocr-button');
+    const ocrResultDiv = document.getElementById('ocr-result');
+
+    ocrButton.addEventListener('click', async () => {
+      ocrResultDiv.style.opacity = '1';
+      ocrResultDiv.style.visibility = 'visible';
+      ocrResultDiv.textContent = 'Capturing screen and performing OCR...';
+
+      try {
+        const ocrText = await ipcRenderer.invoke('capture-and-ocr');
+        if (ocrText) {
+          ocrResultDiv.textContent = `OCR Result: ${ocrText.substring(0, 200)}...`; // Display first 200 chars
+        } else {
+          ocrResultDiv.textContent = 'No text found or OCR failed.';
+        }
+      } catch (error) {
+        ocrResultDiv.textContent = `Error during OCR: ${error.message}`;
+        console.error('OCR button error:', error);
+      }
+
+      setTimeout(() => {
+        ocrResultDiv.style.opacity = '0';
+        ocrResultDiv.style.visibility = 'hidden';
+      }, 5000); // Hide after 5 seconds
+    });
     
     console.log('🧠 Cluely overlay initialized');
   </script>

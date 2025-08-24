@@ -99,7 +99,7 @@ function createOverlayWindow() {
     resizable: false,
     transparent: true,
     show: false,
-    focusable: true,
+    focusable: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -107,11 +107,32 @@ function createOverlayWindow() {
     }
   });
 
+  // Allow mouse events to pass through by default
+  overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+
   overlayWindow.loadFile('src/overlay-oa.html');
   
   // Listen for response state changes (for potential future features)
   ipcMain.on('overlay-showing-response', (event, showing) => {
     console.log('Overlay response state changed:', showing ? 'SHOWING' : 'HIDDEN');
+  });
+
+  // IPC handler to toggle mouse event ignoring
+  ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.setIgnoreMouseEvents(ignore, options);
+    }
+  });
+
+  // IPC handler to trigger screen capture and OCR
+  ipcMain.handle('capture-and-ocr', async () => {
+    try {
+      const response = await axios.post(`${BACKEND_URL}/read_screen_text`);
+      return response.data.text;
+    } catch (error) {
+      console.error('Error during screen capture and OCR:', error);
+      return `Error: ${error.message}`;
+    }
   });
   
   // Handle overlay window errors
@@ -158,9 +179,14 @@ function registerGlobalShortcuts() {
       if (overlay.isVisible()) {
         overlay.hide();
       } else {
+        // Ensure the overlay is always on top and focused when shown
+        overlay.setAlwaysOnTop(true, 'screen-saver');
+        overlay.setVisibleOnAllWorkspaces(true);
         overlay.show();
         overlay.focus();
         overlay.webContents.send('focus-input');
+        // Re-enable mouse events when shown for interaction
+        overlay.setIgnoreMouseEvents(false);
       }
     });
   });

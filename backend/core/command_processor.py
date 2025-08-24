@@ -254,6 +254,23 @@ class CommandProcessor:
                     'metadata': {'method': 'direct_response'}
                 }
             
+            # Check for web browsing commands first (bypass AI when rate limited)
+            if any(keyword in command.lower() for keyword in ['open', 'browse', 'visit', 'go to']) and any(site in command.lower() for site in ['website', 'site', 'github', 'openai', 'repo', 'repository', 'docs', 'documentation', 'python', 'react', 'node', 'javascript', 'typescript', 'vue', 'angular', 'docker', 'kubernetes', 'aws', 'azure', 'gcp', 'stackoverflow', 'reddit', 'twitter', 'linkedin', 'youtube', 'netflix', 'spotify', 'discord', 'slack', 'zoom', 'notion', 'figma', 'trello', 'asana', 'dropbox', 'gmail', 'outlook', 'yahoo', 'bing', 'duckduckgo', 'wikipedia', 'medium', 'dev.to', 'hashnode', 'producthunt', 'hackernews', 'techcrunch', 'the verge', 'ars technica', 'wired']):
+                try:
+                    logger.info(f"[BROWSE] Direct web browsing for: {command}")
+                    # Extract the target from the command
+                    target_match = re.search(r'(?:open|browse|visit|go to)\s+(.+)', command.lower())
+                    if target_match:
+                        target = target_match.group(1).strip()
+                        result = self._handle_browse_url(target)
+                        return {
+                            'success': True,
+                            'result': result,
+                            'metadata': {'method': 'direct_web_browse'}
+                        }
+                except Exception as e:
+                    logger.warning(f"[BROWSE] Direct web browsing failed: {e}")
+            
             # Try using Gemini AI if available
             if self.gemini_ai:
                 try:
@@ -441,6 +458,19 @@ class CommandProcessor:
             s = re.sub(r"\s+", ' ', s).strip()
             return s
 
+        # 1) Use the new AI-powered URL resolution method for complex requests FIRST
+        if self.gemini_ai:
+            try:
+                logger.info(f"[BROWSE] Using AI-powered URL resolution for: {text}")
+                result = self.plugins['web_controller'].resolve_and_open_url(text, self.gemini_ai)
+                # If AI resolution worked and returned a direct URL (not a search page), use it
+                if result and "search" not in result.lower() and "results" not in result.lower():
+                    return result
+                logger.info(f"[BROWSE] AI resolution returned search page, trying site-specific handling")
+            except Exception as e:
+                logger.warning(f"[BROWSE] AI URL resolution failed: {e}")
+
+        # 2) Fall back to site-specific handling if AI resolution didn't work
         site_key = detect_site(lower)
 
         def build_site_url(site: str, query: str) -> Optional[str]:
@@ -473,62 +503,72 @@ class CommandProcessor:
                 logger.info(f"[BROWSE] Site-native search for '{site_key}' with topic '{topic}' -> {built}")
                 return self.plugins['web_controller'].browse_url(built)
 
-        # 1) Ask Gemini to produce the exact URL to open for this phrase (no explicit site or builder failed)
+        # 3) Fall back to old Gemini method if both AI resolution and site-specific handling failed
         if self.gemini_ai:
             try:
-                prompt = (
-                    "You are a URL resolver. Given a user request, output ONE final URL to open in a web browser "
-                    "that best achieves the request. If a site requires a search URL, return the correct search URL "
-                    "for that site. Output ONLY the URL, no extra text.\n\n"
-                    f"User request: {text}"
-                )
-                ai_response = self.gemini_ai.generate_response(prompt, context or [], self.get_available_actions())
-
-                # Accept either 'result' or 'response' then extract a URL
-                possible = ai_response.get('result') or ai_response.get('response') or ''
-                if isinstance(possible, dict):
-                    possible = json.dumps(possible)
-
-                # Extract first URL-looking token
-                url_match = re.search(r"(https?://[^\s]+)", possible)
-                candidate = url_match.group(1) if url_match else possible.strip()
-
-                if candidate:
-                    # Remove any surrounding punctuation
-                    candidate = candidate.strip(" \"'.,!()[]{}")
-                    if re.match(r"^https?://[\w.-]+(?:\.[\w\.-]+)+", candidate):
-                        # If we detected a site intent earlier, ensure candidate domain matches
-                        if site_key:
-                            from urllib.parse import urlparse
-                            cand_host = urlparse(candidate).netloc.lower()
-                            site_host_map = {
-                                'twitter': 'twitter.com',
-                                'linkedin': 'www.linkedin.com',
-                                'reddit': 'www.reddit.com',
-                                'youtube': 'www.youtube.com',
-                                'github': 'github.com',
-                                'stackoverflow': 'stackoverflow.com',
-                                'hackernews': 'news.ycombinator.com',
-                                'medium': 'medium.com',
-                                'producthunt': 'www.producthunt.com'
-                            }
-                            expected = site_host_map.get(site_key)
-                            if expected and expected not in cand_host:
-                                logger.warning(f"[BROWSE] Gemini candidate domain mismatch. expected~{expected} got {cand_host}. Falling back to site-native builder.")
-                                # Mismatch: prefer site-native builder instead of wrong domain like ai.com or posts.com
-                                built = build_site_url(site_key, strip_site_and_fillers(lower, site_key))
-                                if built:
-                                    logger.info(f"[BROWSE] Fallback site-native URL -> {built}")
-                                    return self.plugins['web_controller'].browse_url(built)
-                            logger.info(f"[BROWSE] Gemini candidate accepted -> {candidate}")
-                        return self.plugins['web_controller'].browse_url(candidate)
-                    # If it looks like a domain without scheme
-                    if re.match(r"^[\w.-]+\.[a-zA-Z]{2,}(/.*)?$", candidate):
-                        fixed = f"https://{candidate}"
-                        logger.info(f"[BROWSE] Gemini candidate looked like bare domain, adding scheme -> {fixed}")
-                        return self.plugins['web_controller'].browse_url(fixed)
+                logger.info(f"[BROWSE] Using AI-powered URL resolution for: {text}")
+                result = self.plugins['web_controller'].resolve_and_open_url(text, self.gemini_ai)
+                # If AI resolution worked and returned a direct URL (not a search page), use it
+                if result and "search" not in result.lower() and "results" not in result.lower():
+                    return result
+                logger.info(f"[BROWSE] AI resolution returned search page, trying fallback methods")
             except Exception as e:
-                logger.warning(f"[BROWSE] Gemini URL resolution failed: {e}")
+                logger.warning(f"[BROWSE] AI URL resolution failed: {e}")
+                # Fall back to the old method if the new one fails
+                try:
+                    prompt = (
+                        "You are a URL resolver. Given a user request, output ONE final URL to open in a web browser "
+                        "that best achieves the request. If a site requires a search URL, return the correct search URL "
+                        "for that site. Output ONLY the URL, no extra text.\n\n"
+                        f"User request: {text}"
+                    )
+                    ai_response = self.gemini_ai.generate_response(prompt, context or [], self.get_available_actions())
+
+                    # Accept either 'result' or 'response' then extract a URL
+                    possible = ai_response.get('result') or ai_response.get('response') or ''
+                    if isinstance(possible, dict):
+                        possible = json.dumps(possible)
+
+                    # Extract first URL-looking token
+                    url_match = re.search(r"(https?://[^\s]+)", possible)
+                    candidate = url_match.group(1) if url_match else possible.strip()
+
+                    if candidate:
+                        # Remove any surrounding punctuation
+                        candidate = candidate.strip(" \"'.,!()[]{}")
+                        if re.match(r"^https?://[\w.-]+(?:\.[\w\.-]+)+", candidate):
+                            # If we detected a site intent earlier, ensure candidate domain matches
+                            if site_key:
+                                from urllib.parse import urlparse
+                                cand_host = urlparse(candidate).netloc.lower()
+                                site_host_map = {
+                                    'twitter': 'twitter.com',
+                                    'linkedin': 'www.linkedin.com',
+                                    'reddit': 'www.reddit.com',
+                                    'youtube': 'www.youtube.com',
+                                    'github': 'github.com',
+                                    'stackoverflow': 'stackoverflow.com',
+                                    'hackernews': 'news.ycombinator.com',
+                                    'medium': 'medium.com',
+                                    'producthunt': 'www.producthunt.com'
+                                }
+                                expected = site_host_map.get(site_key)
+                                if expected and expected not in cand_host:
+                                    logger.warning(f"[BROWSE] Gemini candidate domain mismatch. expected~{expected} got {cand_host}. Falling back to site-native builder.")
+                                    # Mismatch: prefer site-native builder instead of wrong domain like ai.com or posts.com
+                                    built = build_site_url(site_key, strip_site_and_fillers(lower, site_key))
+                                    if built:
+                                        logger.info(f"[BROWSE] Fallback site-native URL -> {built}")
+                                        return self.plugins['web_controller'].browse_url(built)
+                                logger.info(f"[BROWSE] Gemini candidate accepted -> {candidate}")
+                            return self.plugins['web_controller'].browse_url(candidate)
+                        # If it looks like a domain without scheme
+                        if re.match(r"^[\w.-]+\.[a-zA-Z]{2,}(/.*)?$", candidate):
+                            fixed = f"https://{candidate}"
+                            logger.info(f"[BROWSE] Gemini candidate looked like bare domain, adding scheme -> {fixed}")
+                            return self.plugins['web_controller'].browse_url(fixed)
+                except Exception as e2:
+                    logger.warning(f"[BROWSE] Fallback Gemini URL resolution also failed: {e2}")
 
         # 2) Fallback: detect a domain and create a site: search query
         domain_match = re.search(r"(?:on|in|at|from|for)\s+([a-z0-9.-]+\.[a-z]{2,})(?:\b|/)", lower)
@@ -1265,6 +1305,25 @@ Just tell me what you want to do in natural language!"""
                         return f"System search failed: {str(e)}"
                         
                 return "System search completed."
+            
+            elif action_type == 'run_command':
+                command_to_run = action.get('command', '')
+                if command_to_run:
+                    # Check if this is a web browsing command
+                    if 'open' in command_to_run.lower() and any(site in command_to_run.lower() for site in ['http', 'github', 'openai', 'website']):
+                        # Extract the target from the command and route to web browsing
+                        target_match = re.search(r'open\s+(.+?)(?:\s|$)', command_to_run.lower())
+                        if target_match:
+                            target = target_match.group(1).strip()
+                            return self._handle_browse_url(target)
+                    
+                    # Otherwise, try to run it as a shell command
+                    success, output, error = self._run_shell_command(command_to_run)
+                    if success:
+                        return f"Command executed successfully: {output}"
+                    else:
+                        return f"Command failed: {error}"
+                return "No command provided to run."
             
             elif action_type == 'terminal_command':
                 # Handle direct terminal commands
