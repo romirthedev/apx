@@ -26,7 +26,7 @@ class Config:
             },
             "server": {
                 "host": "localhost",
-                "port": 8888,
+                "port": 8889,
                 "timeout": 30
             },
             "shortcuts": {
@@ -106,11 +106,16 @@ class Config:
             }
         }
         
+        config_exists = self.config_file.exists()
         self.config = self.load_config()
         # Ensure Gemini API key and enabled status are set from the user's input
-        self.set('apis.gemini.api_key', 'AIzaSyAu6qCWPMMNxeaxLz_DFCk0HyjfGFSnLQ8')
-        self.set('apis.gemini.model', 'gemini-2.5-flash')
-        self.set('apis.gemini.enabled', True)
+        self.config['apis']['gemini']['api_key'] = 'AIzaSyAu6qCWPMMNxeaxLz_DFCk0HyjfGFSnLQ8'
+        self.config['apis']['gemini']['model'] = 'gemini-2.5-flash'
+        self.config['apis']['gemini']['enabled'] = True
+        
+        # Save config only if it was newly created (i.e., did not exist before loading)
+        if not config_exists:
+            self.save_config()
     
     def load_config(self) -> Dict[str, Any]:
         """Load configuration from file or create default."""
@@ -124,9 +129,8 @@ class Config:
                 logger.info("Configuration loaded successfully")
                 return config
             else:
-                # Create default config file
-                self.save_config(self.default_config)
-                logger.info("Created default configuration file")
+                # Create default config file but don't save it automatically unless explicitly told to
+                logger.info("Using default configuration as file does not exist")
                 return self.default_config.copy()
                 
         except Exception as e:

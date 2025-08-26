@@ -22,7 +22,7 @@ from utils.config import Config
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('cluely.log'),
@@ -31,6 +31,8 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+logging.getLogger('core.command_executor').setLevel(logging.DEBUG)
+logging.getLogger('plugins.file_manager').setLevel(logging.DEBUG)
 
 class CluelyBackend:
     def __init__(self):
@@ -292,7 +294,9 @@ class CluelyBackend:
                 'capabilities': self.command_processor.get_capabilities()
             })
     
-    def run(self, host='0.0.0.0', port=8888):
+    def run(self, host='0.0.0.0', port=None):
+        if port is None:
+            port = self.config.get('server.port', 8888)
         logger.info(f"Starting Cluely backend on {host}:{port}")
         
         # Check for required permissions

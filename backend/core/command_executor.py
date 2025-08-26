@@ -31,6 +31,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
 class CommandExecutor:
     """Executes commands on macOS based on structured action plans."""
     
@@ -79,6 +80,10 @@ class CommandExecutor:
             if action_type == 'create_file':
                 result = self._handle_create_file(parameters)
             elif action_type == 'find_file':
+                # The AI might provide 'file_name' directly in the action, or within 'parameters'
+                file_name_param = action.get('file_name') or parameters.get('file_name')
+                if file_name_param:
+                    parameters['pattern'] = file_name_param
                 result = self._handle_find_file(parameters)
             elif action_type in ['file_open', 'open_file']:
                 result = self._handle_open_file(parameters)
@@ -101,7 +106,7 @@ class CommandExecutor:
                 
             # System control
             elif action_type == 'run_command':
-                result = self._handle_run_command(parameters)
+                result = self._handle_run_command(action)
             elif action_type == 'get_system_info':
                 result = self._handle_get_system_info(parameters)
             elif action_type == 'get_date':
@@ -228,6 +233,7 @@ class CommandExecutor:
                     return False, "", f"Potentially dangerous command blocked in sandbox mode: {command}"
         
         try:
+            logger.debug(f"Running shell command: {command}")
             result = subprocess.run(
                 command, 
                 shell=shell, 
@@ -239,7 +245,9 @@ class CommandExecutor:
             success = result.returncode == 0
             output = result.stdout
             error = result.stderr
-            
+
+            logger.debug(f"Shell command stdout: {result.stdout.strip()}")
+            logger.debug(f"Shell command stderr: {result.stderr.strip()}")
             return success, output, error
             
         except subprocess.TimeoutExpired:
@@ -315,16 +323,22 @@ class CommandExecutor:
         pattern = params.get('pattern') or params.get('query', '*')
         search_path = params.get('path', '~')
         search_path = os.path.expanduser(search_path)
-        
+
         # Limit search to safe directories in sandbox mode
         if self.sandbox_mode and not self._is_path_safe(search_path):
             search_path = os.path.expanduser('~')
-        
+
+        logger.debug(f"_handle_find_file: Searching for pattern '{pattern}' in path '{search_path}'")
+
         try:
             # Use find command for more efficient search
             command = f"find '{search_path}' -name '{pattern}' -type f 2>/dev/null | head -50"
+
             success, output, error = self._run_shell_command(command)
+
             
+            logger.info(f"Find command output: {output}")
+            logger.info(f"Find command error: {error}")
             if success:
                 files = [f for f in output.strip().split('\n') if f]
                 result['files'] = files
@@ -379,7 +393,40 @@ class CommandExecutor:
                 workspace = NSWorkspace.sharedWorkspace()
                 success = workspace.openFile_(path)
                 
-                if success:
+   
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             
+             if success:
                     result['success'] = True
                     result['output'] = f"File opened: {path}"
                 else:
@@ -388,6 +435,8 @@ class CommandExecutor:
                 # Fallback to open command
                 command = f"open '{path}'"
                 success, output, error = self._run_shell_command(command)
+             
+             
                 
                 if success:
                     result['success'] = True
@@ -751,7 +800,7 @@ class CommandExecutor:
             'error': ''
         }
         
-        command = params.get('command', '')
+        command = params.get('parameters', {}).get('command', '')
         timeout = params.get('timeout', 30)
         
         if not command:

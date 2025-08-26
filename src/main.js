@@ -89,17 +89,20 @@ function createOverlayWindow() {
   const { width, height } = primaryDisplay.workAreaSize;
   
   overlayWindow = new BrowserWindow({
-    width: width,
-    height: height,
-    x: 0,
-    y: 0,
+    width: 700, // Match the width from overlay-unified.html
+    height: 500,
+    x: (width - 700) / 2, // Center horizontally
+    y: 100, // Position near top of screen
     frame: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
     transparent: true,
     show: false,
-    focusable: false,
+    focusable: true,
+    hasShadow: true,
+    type: 'panel', // Makes it a floating panel
+    visualEffectState: 'active', // Enables vibrancy effect
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -110,7 +113,7 @@ function createOverlayWindow() {
   // Allow mouse events to pass through by default
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
 
-  overlayWindow.loadFile('src/overlay-oa.html');
+  overlayWindow.loadFile('src/overlay-unified.html');
   
   // Listen for response state changes (for potential future features)
   ipcMain.on('overlay-showing-response', (event, showing) => {
@@ -135,6 +138,22 @@ function createOverlayWindow() {
     }
   });
   
+  // IPC handler for screen capture
+  ipcMain.handle('capture-screen', async () => {
+    try {
+      const { desktopCapturer } = require('electron');
+      const sources = await desktopCapturer.getSources({ types: ['screen'] });
+      if (sources.length > 0) {
+        return { success: true, source: sources[0].id };
+      } else {
+        return { success: false, error: 'No screen sources found' };
+      }
+    } catch (error) {
+      console.error('Error capturing screen:', error);
+      return { success: false, error: error.message };
+    }
+  });
+  
   // Handle overlay window errors
   overlayWindow.webContents.on('crashed', () => {
     console.error('Overlay window crashed, recreating...');
@@ -153,10 +172,11 @@ function createOverlayWindow() {
     console.log('Overlay window became responsive again');
   });
   
-  // Overlay no longer auto-hides on blur - stays visible for user
+  // Keep overlay visible and on top when switching apps
   overlayWindow.on('blur', () => {
-    console.log('Overlay blur event - overlay will remain visible');
-    // Removed auto-hide behavior - overlay stays on screen
+    console.log('Overlay blur event - ensuring overlay stays visible and on top');
+    overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+    overlayWindow.setVisibleOnAllWorkspaces(true);
   });
 
   if (process.argv.includes('--dev')) {
@@ -472,11 +492,11 @@ ipcMain.handle('clear-context', () => {
 });
 
 // Handle overlay resizing
-ipcMain.on('resize-overlay', (event, height) => {
-  safeOverlayOperation((overlay) => {
-    overlay.setSize(600, height);
-  });
-});
+// ipcMain.on('resize-overlay', (event, height) => {
+//   safeOverlayOperation((overlay) => {
+//     overlay.setSize(600, height);
+//   });
+// });
 
 async function checkBackendHealth() {
   try {

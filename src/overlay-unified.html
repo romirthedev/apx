@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Cluely AI Assistant</title>
+  <style>
+    html {
+      width: 100%;
+      height: 100%;
+      background: none;
+    }
+    
+    body {
+      margin: 0; 
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: none;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    /* Main container with glass morphism effect */
+    .overlay-container {
+      background: rgba(25, 25, 25, 0.2);
+      backdrop-filter: blur(12px);
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+      padding: 0;
+      height: 500px;
+      width: 700px;
+      display: flex;
+      flex-direction: column;
+      -webkit-app-region: drag;
+      margin: 20px auto;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    /* Controls container at the top */
+    .controls-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      -webkit-app-region: no-drag;
+    }
+    
+    /* Shortcuts section */
+    .shortcuts {
+      display: flex;
+      gap: 12px;
+    }
+    
+    .shortcut-btn {
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      color: #ffffff;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 300; /* Thin font weight */
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap; /* Ensure single line */
+    }
+    
+    .shortcut-btn:hover {
+      background: rgba(255, 255, 255, 0.25);
+      transform: translateY(-1px);
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+    
+    .shortcut-btn:active {
+      transform: translateY(0);
+    }
+    
+    /* Capture button */
+    .capture-btn {
+      background: #007acc;
+      border: none;
+      border-radius: 6px;
+      color: #ffffff;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 300; /* Thin font weight */
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap; /* Ensure single line */
+    }
+    
+    .capture-btn:hover {
+      background: #0088e0;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(0, 122, 204, 0.4);
+    }
+    
+    .capture-btn:active {
+      transform: translateY(0);
+    }
+    
+    /* Input container below controls */
+    .input-container {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      padding: 15px 20px;
+      box-sizing: border-box;
+      -webkit-app-region: no-drag;
+      gap: 10px;
+    }
+    
+    .command-input {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      outline: none;
+      color: #ffffff;
+      font-size: 16px;
+      font-weight: 400;
+      padding: 12px 16px;
+      transition: all 0.3s ease;
+      letter-spacing: 0.3px;
+    }
+
+    .send-btn {
+      background: #007acc;
+      border: none;
+      border-radius: 8px;
+      color: #ffffff;
+      padding: 12px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 80px;
+    }
+    
+    .send-btn:hover {
+      background: #0088e0;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(0, 122, 204, 0.4);
+    }
+    
+    .send-btn:active {
+      transform: translateY(0);
+    }
+
+    .send-btn:disabled {
+      background: rgba(255, 255, 255, 0.1);
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    
+    .command-input:focus {
+      border-color: rgba(0, 122, 204, 0.5);
+      box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+    }
+    
+    .command-input::placeholder {
+      color: rgba(255, 255, 255, 0.4);
+    }
+    
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4caf50;
+      margin-left: 15px;
+      animation: pulse 2s infinite;
+    }
+    
+    .status-indicator.thinking {
+      background: #ff9800;
+      animation: thinking 1s infinite;
+    }
+    
+    .status-indicator.error {
+      background: #f44336;
+      animation: none;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+    
+    @keyframes thinking {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+      100% { transform: scale(1); }
+    }
+    
+    /* Response container */
+    .result-container {
+      flex: 1;
+      background: transparent;
+      padding: 0 20px 20px 20px;
+      /* max-height: 400px; */ /* Removed to prevent size changes */
+      overflow-y: auto;
+      display: none;
+      width: 100%;
+      box-sizing: border-box;
+      position: relative;
+      z-index: 1000;
+      -webkit-app-region: no-drag;
+      transition: max-height 0.3s ease; /* Smooth transition for height changes */
+    }
+    
+    .result-container.show {
+      display: block !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+    }
+    
+    .result-content {
+      background: rgba(45, 45, 45, 0.6);
+      border-radius: 12px;
+      padding: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      margin-bottom: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 40px;
+      position: relative;
+      transition: all 0.3s ease;
+    }
+    
+    .result-text {
+      color: #ffffff;
+      font-size: 14px;
+      line-height: 1.6;
+      margin: 0;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+    }
+    
+    .result-success {
+      border-left-color: #4caf50;
+      background: rgba(76, 175, 80, 0.1);
+    }
+    
+    .result-error {
+      border-left-color: #f44336;
+      background: rgba(244, 67, 54, 0.1);
+    }
+    
+    .result-thinking {
+      border-left-color: #ff9800;
+      background: rgba(255, 152, 0, 0.1);
+    }
+    
+    .ai-response {
+      border-left-color: #9c27b0;
+      background: rgba(156, 39, 176, 0.1);
+    }
+    
+    .ai-response::before {
+      content: "🤖 AI Response";
+      display: block;
+      font-size: 12px;
+      color: #9c27b0;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+    
+    .typing-indicator {
+      display: inline-block;
+    }
+    
+    .typing-indicator::after {
+      content: '...';
+      animation: dots 1.5s infinite;
+    }
+    
+    @keyframes dots {
+      0%, 20% { content: '.'; }
+      40% { content: '..'; }
+      60%, 100% { content: '...'; }
+    }
+    
+    .action-status {
+      background: rgba(0, 122, 204, 0.1);
+      border: 1px solid rgba(0, 122, 204, 0.3);
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 10px;
+      color: #007acc;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    
+    .action-status.working {
+      animation: pulse 2s infinite;
+    }
+    
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 4px;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="overlay-container">
+    <!-- Controls at the top -->
+    <div class="controls-container">
+      <button class="capture-btn" id="captureBtn">📸 Capture Screen</button>
+      <div class="shortcuts">
+        <button class="shortcut-btn" id="webSearchBtn">🔍 Web Search</button>
+        <button class="shortcut-btn" id="fileBtn">📁 Files</button>
+        <button class="shortcut-btn" id="emailBtn">✉️ Email</button>
+        <button class="shortcut-btn" id="calendarBtn">📅 Calendar</button>
+      </div>
+    </div>
+    
+    <!-- Input container below controls -->
+    <div class="input-container">
+      <input 
+        type="text" 
+        class="command-input" 
+        id="commandInput"
+        placeholder="Ask me anything..."
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <button class="send-btn" id="sendBtn" disabled>Send</button>
+      <div class="status-indicator" id="statusIndicator"></div>
+    </div>
+    
+    <!-- Result container -->
+    <div class="result-container" id="resultContainer">
+      <div class="action-status" id="actionStatus" style="display: none;"></div>
+      <div class="result-content" id="resultContent">
+        <p class="result-text" id="resultText"></p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    
+    const commandInput = document.getElementById('commandInput');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const resultContainer = document.getElementById('resultContainer');
+    const resultContent = document.getElementById('resultContent');
+    const resultText = document.getElementById('resultText');
+    const actionStatus = document.getElementById('actionStatus');
+    const sendBtn = document.getElementById('sendBtn');
+    
+    // Shortcut buttons
+    const webSearchBtn = document.getElementById('webSearchBtn');
+    const fileBtn = document.getElementById('fileBtn');
+    const emailBtn = document.getElementById('emailBtn');
+    const calendarBtn = document.getElementById('calendarBtn');
+    const captureBtn = document.getElementById('captureBtn');
+    
+    let isProcessing = false;
+    let currentResponse = '';
+    let typingTimeout;
+
+    // Enable/disable send button based on input
+    commandInput.addEventListener('input', () => {
+      sendBtn.disabled = !commandInput.value.trim();
+    });
+
+    // Function to process user input
+    async function processUserInput() {
+      const command = commandInput.value.trim();
+      if (command && !isProcessing) {
+        isProcessing = true;
+        setStatus('thinking');
+        try {
+          const response = await processCommand(command);
+          await handleResponse(response);
+          commandInput.value = ''; // Clear input after successful processing
+        } catch (error) {
+          console.error('Error processing command:', error);
+          showResult(`Error: ${error.message}`, 'error');
+        } finally {
+          isProcessing = false;
+          setStatus('idle');
+          sendBtn.disabled = true;
+        }
+      }
+    }
+
+    // Handle Enter key and button click
+    commandInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        processUserInput();
+      }
+    });
+
+    sendBtn.addEventListener('click', () => {
+      processUserInput();
+    });
+    
+    // Focus input when overlay is shown
+    ipcRenderer.on('focus-input', () => {
+      commandInput.focus();
+      commandInput.select();
+    });
+    
+    // Add click handlers to keep overlay open when interacting
+    document.addEventListener('click', (e) => {
+      console.log('🖱️ Overlay clicked - preventing auto-hide');
+      // Clear auto-hide timeout when user interacts
+      if (window.autoHideTimeout) {
+        clearTimeout(window.autoHideTimeout);
+        window.autoHideTimeout = null;
+      }
+    });
+    
+    // Also prevent hiding when hovering over results
+    document.addEventListener('mouseenter', () => {
+      if (resultContainer.classList.contains('show')) {
+        console.log('🖱️ Mouse entered overlay with results - preventing auto-hide');
+        if (window.autoHideTimeout) {
+          clearTimeout(window.autoHideTimeout);
+          window.autoHideTimeout = null;
+        }
+      }
+    });
+    
+    // Handle Escape key
+    commandInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        hideOverlay();
+      }
+    });
+
+    // Function to process actions sequentially
+    async function processActions(actions) {
+      if (!Array.isArray(actions)) return;
+      
+      for (const action of actions) {
+        try {
+          switch (action.type) {
+            case 'open_app':
+              showActionStatus(`🚀 Opening ${action.app}...`);
+              if (action.app.toLowerCase() === 'mail') {
+                window.emailData = { to: '', subject: '', body: '' };
+              } else {
+                await ipcRenderer.invoke('send-command', `open ${action.app}`);
+              }
+              break;
+
+            case 'type_text':
+              if (action.parameters?.target_app === 'Mail') {
+                if (action.parameters.target_field === 'to') {
+                  window.emailData.to = action.text;
+                } else if (action.parameters.target_field === 'subject') {
+                  window.emailData.subject = action.text;
+                  const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1` +
+                    `&to=${encodeURIComponent(window.emailData.to)}` +
+                    `&su=${encodeURIComponent(window.emailData.subject)}` +
+                    `&body=${encodeURIComponent(window.emailData.body)}`;
+                  await ipcRenderer.invoke('send-command', `open_url ${gmailUrl}`);
+                }
+              } else {
+                await ipcRenderer.invoke('send-command', `type ${action.text}`);
+              }
+              break;
+
+            case 'run_command':
+              showActionStatus(`🖥️ Running command: ${action.command}...`);
+              const cleanCommand = action.command.replace(/[\s`']+/g, ' ').trim();
+              await ipcRenderer.invoke('send-command', cleanCommand);
+              break;
+
+            case 'navigate_url':
+              showActionStatus(`🌐 Opening URL...`);
+              const cleanUrl = action.url.replace(/[\s`']+/g, '').trim();
+              await ipcRenderer.invoke('send-command', `open_url ${cleanUrl}`);
+              break;
+
+            default:
+              console.warn(`Unknown action type: ${action.type}`);
+          }
+        } catch (error) {
+          console.error(`Error processing action ${action.type}:`, error);
+          showResult(`Error processing action: ${error.message}`, 'error');
+        }
+      }
+    }
+    
+    // Shortcut button handlers with command processing
+    webSearchBtn.addEventListener('click', async () => {
+      if (!isProcessing) {
+        commandInput.value = 'search for ';
+        commandInput.focus();
+        const len = commandInput.value.length;
+        commandInput.setSelectionRange(len, len);
+      }
+    });
+    
+    fileBtn.addEventListener('click', async () => {
+      if (!isProcessing) {
+        commandInput.value = 'find file ';
+        commandInput.focus();
+        const len = commandInput.value.length;
+        commandInput.setSelectionRange(len, len);
+      }
+    });
+    
+    emailBtn.addEventListener('click', async () => {
+      if (!isProcessing) {
+        commandInput.value = 'compose email to ';
+        commandInput.focus();
+        const len = commandInput.value.length;
+        commandInput.setSelectionRange(len, len);
+        showActionStatus('✉️ Enter recipient and message...');
+      }
+    });
+    
+    calendarBtn.addEventListener('click', async () => {
+      if (!isProcessing) {
+        commandInput.value = 'schedule meeting ';
+        commandInput.focus();
+        const len = commandInput.value.length;
+        commandInput.setSelectionRange(len, len);
+        showActionStatus('📅 Enter calendar command or event details...');
+      }
+    });
+    
+    captureBtn.addEventListener('click', async () => {
+      hideResult();
+      showActionStatus('📸 Capturing screen...');
+      try {
+        const result = await ipcRenderer.invoke('capture-screen');
+        if (result.success) {
+          showActionStatus('✅ Screen captured successfully!');
+          // Process the captured image with OCR
+          const ocrResult = await ipcRenderer.invoke('capture-and-ocr', result.imagePath);
+          
+          if (ocrResult && ocrResult.success) {
+            showResult(`Screen captured and processed:\n${ocrResult.text}`, 'success');
+            
+            // Ask if user wants AI analysis of the captured content
+            setTimeout(() => {
+              const shouldAnalyze = confirm('Would you like AI to analyze this captured content?');
+              if (shouldAnalyze) {
+                showActionStatus('🧠 Analyzing captured content with AI...');
+                // Send the OCR text to AI for analysis
+                ipcRenderer.invoke('send-command', `Analyze this captured content: ${ocrResult.text}`)
+                  .then(response => {
+                    if (response.success) {
+                      showResult(response.result, 'ai-response');
+                    } else {
+                      showResult(`AI analysis failed: ${response.error}`, 'error');
+                    }
+                  })
+                  .catch(error => {
+                    console.error('Error during AI analysis:', error);
+                    showResult(`Error during AI analysis: ${error.message}`, 'error');
+                  });
+              }
+            }, 1000);
+          } else {
+            showResult(`Screen captured but OCR failed: ${ocrResult ? ocrResult.error : 'Unknown error'}`, 'error');
+          }
+        } else {
+          showResult(`❌ Screen capture failed: ${result.error}`, 'error');
+        }
+      } catch (error) {
+        console.error('Screen capture error:', error);
+        showResult(`⚠️ Screen capture error: ${error.message}`, 'error');
+      } finally {
+        hideActionStatus();
+      }
+    });
+    
+    async function processCommand(command) {
+      if (!command || typeof command !== 'string') {
+        throw new Error('Invalid command');
+      }
+
+      try {
+        showActionStatus('Processing your request...');
+        
+        // Check for specific search patterns
+        const webSearchPattern = /^(?:search|search for|look for|show me|find)\s+(.+?)(?:\s+on\s+(.+))?$/i;
+        const fileSearchPattern = /^(?:find file|search file|locate file|find|locate)\s+(.+?)$/i;
+        const githubSearchPattern = /^(?:find|search for|look for)\s+(?:github|repo|repository)\s+(?:about|for|on|with)?\s+(.+?)$/i;
+        
+        const webSearchMatch = command.match(webSearchPattern);
+        const fileSearchMatch = command.match(fileSearchPattern);
+        const githubSearchMatch = command.match(githubSearchPattern);
+        
+        // Handle web search
+        if (webSearchMatch && !command.toLowerCase().includes('file')) {
+          const searchQuery = webSearchMatch[1];
+          let site = webSearchMatch[2];
+          
+          // If no site specified, ask AI for the best one
+          if (!site) {
+            showActionStatus('🔍 Finding the best site for your search...');
+            try {
+              // Ask the AI for the best site
+              const aiResponse = await ipcRenderer.invoke('send-command', 
+                `If the user doesn't specify a site, what's the best one for this search: ${searchQuery}`);
+              
+              if (aiResponse.success && aiResponse.result) {
+                // Extract site name from AI response
+                const siteSuggestion = aiResponse.result.match(/(?:use|try|visit|go to)\s+([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+                if (siteSuggestion && siteSuggestion[1]) {
+                  site = siteSuggestion[1];
+                  showActionStatus(`🌐 Using ${site} for your search...`);
+                }
+              }
+            } catch (error) {
+              console.error('Error getting site suggestion:', error);
+            }
+          }
+          
+          // Prepare the command for the backend
+          let enhancedCommand;
+          if (site) {
+            enhancedCommand = `search for ${searchQuery} on ${site}`;
+          } else {
+            enhancedCommand = `search for ${searchQuery}`;
+          }
+          
+          console.log('📡 Sending enhanced web search command:', enhancedCommand);
+          console.log('Invoking ipcRenderer.invoke(\'send-command\') for web search...'); console.log('Command:', enhancedCommand);
+          const response = await ipcRenderer.invoke('send-command', enhancedCommand);
+          handleResponse(response);
+        } 
+        // Handle file search
+        else if (fileSearchMatch || command.toLowerCase().includes('file')) {
+          const fileQuery = fileSearchMatch ? fileSearchMatch[1] : command.replace(/^(?:find|search for|look for|show me)\s+/i, '');
+          console.log('📁 Sending file search command:', fileQuery);
+          const enhancedCommand = `find_file ${fileQuery}`;
+          console.log('Invoking ipcRenderer.invoke(\'send-command\') for file search...'); console.log('Command:', enhancedCommand);
+          const response = await ipcRenderer.invoke('send-command', enhancedCommand);
+          handleResponse(response);
+        }
+        // Handle email commands
+        else if (/^(?:email|send email|send message to|email to|message)\s+(.+?)$/i.test(command)) {
+          const emailMatch = command.match(/^(?:email|send email|send message to|email to|message)\s+(.+?)$/i);
+          if (emailMatch) {
+            const emailContent = emailMatch[1];
+            // Check if email contains recipient and message
+            const recipientMatch = emailContent.match(/^([^\s@]+@[^\s@]+\.[^\s@]+|[^:]+)(?:\s*:\s*|\s+)(.+)$/i);
+            
+            if (recipientMatch) {
+              const recipient = recipientMatch[1].trim();
+              const message = recipientMatch[2].trim();
+              
+              showActionStatus(`✉️ Preparing email to ${recipient}...`);
+              console.log(`📧 Preparing email to ${recipient} with message: ${message}`);
+              
+              // Format Gmail URL with recipient and message body
+              const subject = "";
+              const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(recipient)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+              
+              // Send command to open Gmail with draft
+              const enhancedCommand = `open_url ${gmailUrl}`;
+              console.log('Invoking ipcRenderer.invoke(\'send-command\') for email...'); console.log('Command:', enhancedCommand);
+              const response = await ipcRenderer.invoke('send-command', enhancedCommand);
+              handleResponse(response);
+            } else {
+              // If format is incorrect, show error
+              showResult('Please provide both recipient and message. Format: "email recipient: message" or "email recipient message"', 'error');
+            }
+          }
+        }
+        // Handle GitHub repo search
+        else if (githubSearchMatch || /github|repo|repository/i.test(command)) {
+          const repoQuery = githubSearchMatch ? githubSearchMatch[1] : command.replace(/^(?:find|search for|look for|show me)\s+(?:github|repo|repository)\s+(?:about|for|on|with)?\s*/i, '');
+          console.log('📡 Sending GitHub repo search command...');
+          const enhancedCommand = `search for github repository about ${repoQuery}`;
+          console.log('Invoking ipcRenderer.invoke(\'send-command\') for GitHub search...'); console.log('Command:', enhancedCommand);
+          const response = await ipcRenderer.invoke('send-command', enhancedCommand);
+          handleResponse(response);
+        }
+        // Handle calendar commands
+        else if (/^(?:calendar|schedule|add event|create event)\s+(.+?)$/i.test(command)) {
+          const calendarMatch = command.match(/^(?:calendar|schedule|add event|create event)\s+(.+?)$/i);
+          if (calendarMatch) {
+            const eventDetails = calendarMatch[1];
+            
+            // Try to parse event details
+            let title = eventDetails;
+            let startDate = '';
+            let endDate = '';
+            let location = '';
+            
+            // Check for date patterns
+            const datePattern = /(?:on|at|from)\s+([\w\s,]+?)(?:\s+(?:to|until|-)\s+([\w\s,]+?))?(?:\s+(?:at|in)\s+([\w\s,]+?))?(?:\s|$)/i;
+            const dateMatch = eventDetails.match(datePattern);
+            
+            if (dateMatch) {
+              // Extract potential date and location information
+              if (dateMatch[1]) startDate = dateMatch[1].trim();
+              if (dateMatch[2]) endDate = dateMatch[2].trim();
+              if (dateMatch[3]) location = dateMatch[3].trim();
+              
+              // Remove date/location info from title
+              title = eventDetails.replace(datePattern, '').trim();
+            }
+            
+            showActionStatus(`📅 Creating calendar event: ${title}...`);
+            console.log(`📅 Creating calendar event: ${title}, Start: ${startDate}, End: ${endDate}, Location: ${location}`);
+            
+            // Format Google Calendar URL with event details
+            const dates = startDate ? `dates=${encodeURIComponent(startDate)}${endDate ? '/' + encodeURIComponent(endDate) : ''}` : '';
+            const calendarUrl = `https://calendar.google.com/calendar/r/eventedit?text=${encodeURIComponent(title)}&${dates}&location=${encodeURIComponent(location)}`;
+            
+            // Send command to open Google Calendar with event details
+            const enhancedCommand = `open_url ${calendarUrl}`;
+            console.log('Invoking ipcRenderer.invoke(\'send-command\') for calendar...'); console.log('Command:', enhancedCommand);
+            const response = await ipcRenderer.invoke('send-command', enhancedCommand);
+            handleResponse(response);
+          }
+        }
+        // Regular command processing
+        else {
+          console.log('📡 Sending regular command...');
+          console.log('Invoking ipcRenderer.invoke(\'send-command\') for regular command...');
+          const response = await ipcRenderer.invoke('send-command', command);
+          handleResponse(response);
+        }
+      } catch (error) {
+        console.error('Command processing error:', error);
+        setStatus('error');
+        hideActionStatus();
+        showResult(`⚠️ Connection Error: ${error.message}\n\nPlease check if the backend service is running.`, 'error');
+        showActionStatus('💡 Try: npm run backend');
+      } finally {
+        isProcessing = false;
+        
+        // Reset status after 3 seconds
+        setTimeout(() => {
+          setStatus('ready');
+        }, 3000);
+      }
+    }
+    
+    async function handleResponse(response) {
+      if (!response) {
+        throw new Error('Invalid response');
+      }
+
+      try {
+        if (response.success) {
+          setStatus('success');
+          let resultText = response.result || 'Command completed successfully';
+          let isAiResponse = response.is_ai_response || false;
+
+          // Parse JSON response if available
+          if (typeof resultText === 'string' && resultText.trim().startsWith('{')) {
+            try {
+              const jsonResult = JSON.parse(resultText);
+
+              // Process actions if available
+              if (jsonResult.actions && Array.isArray(jsonResult.actions)) {
+                await processActions(jsonResult.actions);
+              }
+
+              // Update result text if response message is available
+              if (jsonResult.response) {
+                resultText = jsonResult.response;
+                isAiResponse = true;
+              }
+            } catch (jsonError) {
+              console.warn('Failed to parse JSON response:', jsonError);
+              // Continue with normal text processing
+            }
+          }
+
+          // Display the result
+          if (isAiResponse) {
+            await typeResponse(resultText, 'success', true);
+          } else {
+            showResult(resultText, 'success');
+          }
+
+          // Clear input and set auto-hide
+          commandInput.value = '';
+          const hideDelay = isAiResponse ? 20000 : 10000;
+          window.autoHideTimeout = setTimeout(hideOverlay, hideDelay);
+
+        } else {
+          throw new Error(response.error || 'Command failed');
+        }
+      } catch (error) {
+        setStatus('error');
+        showResult(`Error: ${error.message}`, 'error');
+      } finally {
+        hideActionStatus();
+      }
+    }
+    
+    function setStatus(status) {
+      statusIndicator.className = 'status-indicator';
+      if (status === 'thinking') {
+        statusIndicator.classList.add('thinking');
+      } else if (status === 'error') {
+        statusIndicator.classList.add('error');
+      }
+    }
+    
+    function showResult(text, type = '', isAiResponse = false) {
+      console.log('🔍 showResult called with:', { 
+        textLength: text.length, 
+        textPreview: text.substring(0, 50), 
+        type, 
+        isAiResponse 
+      });
+      
+      // Notify main process that we're showing a response
+      ipcRenderer.send('overlay-showing-response', true);
+      
+      // Force clear any existing content
+      resultText.innerHTML = '';
+      resultContent.className = 'result-content';
+      
+      // Set the content
+      resultText.innerHTML = text;
+      
+      // Apply styling
+      if (isAiResponse) {
+        resultContent.classList.add('ai-response');
+        console.log('✅ Applied AI response styling');
+      } else if (type === 'success') {
+        resultContent.classList.add('result-success');
+        console.log('✅ Applied success styling');
+      } else if (type === 'error') {
+        resultContent.classList.add('result-error');
+        console.log('✅ Applied error styling');
+      } else if (type === 'thinking') {
+        resultContent.classList.add('result-thinking');
+        console.log('✅ Applied thinking styling');
+      }
+      
+      // Force display with multiple approaches
+      resultContainer.style.display = 'block';
+      resultContainer.style.visibility = 'visible';
+      resultContainer.style.opacity = '1';
+      resultContainer.style.height = 'auto';
+      resultContainer.style.minHeight = '60px';
+      resultContainer.classList.add('show');
+      
+      // Keep overlay at compact size regardless of content
+      resizeOverlay(120);
+      
+      // Log final state
+      console.log('📊 Result container final state:', {
+        display: resultContainer.style.display,
+        visibility: resultContainer.style.visibility,
+        opacity: resultContainer.style.opacity,
+        classList: resultContainer.classList.toString(),
+        innerHTML: resultContainer.innerHTML.length > 0
+      });
+      
+      // Scroll into view if needed
+      resultContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    
+    async function typeResponse(text, type = '', isAiResponse = false) {
+      currentResponse = '';
+      const words = text.split(' ');
+      
+      // Show initial message with typing indicator
+      showResult('', type, isAiResponse);
+      
+      // Expand overlay for AI responses to improve readability
+      if (isAiResponse) {
+        console.log('📐 Expanding overlay to 400px for AI response typing...');
+        resizeOverlay(400);
+      }
+      
+      for (let i = 0; i < words.length; i++) {
+        currentResponse += words[i] + ' ';
+        showResult(currentResponse + '<span class="typing-indicator"></span>', type, isAiResponse);
+        
+        // Dynamically adjust overlay height as content grows
+        // if (isAiResponse && i % 10 === 0) {
+        //   // Calculate content height based on result container
+        //   const contentHeight = Math.min(resultContainer.scrollHeight + 100, 500);
+        //   resizeOverlay(Math.max(contentHeight, 400));
+        // }
+        
+        await new Promise(resolve => setTimeout(resolve, 30)); // Faster typing
+      }
+      
+      // Remove typing indicator and show final result
+      showResult(currentResponse.trim(), type, isAiResponse);
+    }
+    
+    function showActionStatus(text) {
+      actionStatus.textContent = text;
+      actionStatus.className = 'action-status working';
+      actionStatus.style.display = 'block';
+    }
+    
+    function hideActionStatus() {
+      actionStatus.style.display = 'none';
+    }
+    
+    function resizeOverlay(height) {
+      // Send both width and height to properly resize the overlay
+      ipcRenderer.send('resize-overlay', 960, height);
+    }
+    
+    function hideResult() {
+      console.log('👻 hideResult called - was visible:', resultContainer.style.display !== 'none');
+      resultContainer.style.display = 'none';
+      resultContainer.classList.remove('show');
+      
+      // Notify main process that response is no longer showing
+      ipcRenderer.send('overlay-showing-response', false);
+    }
+    
+    function hideOverlay() {
+      console.log('🚪 hideOverlay called - stack trace:', new Error().stack);
+      
+      // Clear any auto-hide timeout
+      if (window.autoHideTimeout) {
+        clearTimeout(window.autoHideTimeout);
+        window.autoHideTimeout = null;
+      }
+      
+      hideResult();
+      hideActionStatus();
+      commandInput.value = '';
+      resizeOverlay(500); // Use new default size
+      // Don't immediately close, let user see the result
+      setTimeout(() => {
+        console.log('🚪 Actually closing overlay window...');
+        window.close();
+      }, 500);
+    }
+    
+    // Initialize
+    setStatus('ready');
+    
+    // Focus input when loaded
+    window.addEventListener('load', () => {
+      commandInput.focus();
+      
+      // Debug: Make sure overlay is visible
+      console.log('🖼️ Overlay loaded. Container style:', {
+        background: window.getComputedStyle(document.querySelector('.overlay-container')).background,
+        display: window.getComputedStyle(document.querySelector('.overlay-container')).display,
+        opacity: window.getComputedStyle(document.querySelector('.overlay-container')).opacity
+      });
+    });
+  </script>
+</body>
+</html>

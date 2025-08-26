@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 class FileManager:
     def __init__(self):
@@ -154,7 +155,9 @@ class FileManager:
             
             if not base_path.exists() or not base_path.is_dir():
                 return f"Invalid search path: {base_path}"
-            
+
+            logger.info(f"search_files: Searching for query '{query}' in path '{base_path}'")
+
             # Search by filename
             filename_matches = []
             for pattern in [f"*{query}*", f"*{query.lower()}*", f"*{query.upper()}*"]:
