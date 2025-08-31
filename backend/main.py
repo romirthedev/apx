@@ -136,6 +136,15 @@ class CluelyBackend:
                 if not used_ai_chat:
                     logger.info("Task Planner disabled: routing directly to CommandProcessor")
                     result = self.command_processor.process(command, context)
+                    # Execute the action directly if it's an email or calendar command
+                    if isinstance(result, str) or result.get('metadata', {}).get('method') in ['compose_email', 'gmail_compose', 'mail_compose', 'web_email_compose', 'web_calendar_invite']:
+                        # If result is already a string (direct execution output), return it
+                        if isinstance(result, str):
+                            return result
+                        # Otherwise get the result string from the response
+                        action_result = result.get('result', '')
+                        # Return just the action result without the JSON wrapper
+                        return action_result
                     # Merge AI metadata if present
                     if ai_metadata:
                         meta = result.get('metadata', {})
