@@ -37,84 +37,69 @@ class TaskPlannerManager:
             Dictionary with response and execution results
         """
         try:
-            # Step 1: Break down the request into subtasks
-            subtasks = self._break_down_request(user_input)
+            # Check if this is a web navigation request that needs special handling
+            if self._is_web_navigation_request(user_input):
+                result = self._handle_web_navigation_request(user_input, context)
+                # Ensure AI response metadata for web navigation
+                result['is_ai_response'] = True
+                result['metadata'] = result.get('metadata', {})
+                result['metadata']['method'] = 'task_planner'
+                return result
             
-            # Step 2: Process each subtask
-            results = []
-            overall_success = True
-            final_response = ""
+            # Step 1: AI Planner - Generate structured tasks from user input
+            ai_response = self.gemini_ai.generate_response(user_input, context)
             
-            for subtask in subtasks:
-                # Check if this is a web navigation request that needs special handling
-                if self._is_web_navigation_request(subtask):
-                    result = self._handle_web_navigation_request(subtask, context)
-                    result['is_ai_response'] = True
-                    result['metadata'] = result.get('metadata', {})
-                    result['metadata']['method'] = 'task_planner'
-                    results.append(result)
-                    continue
-                
-                # Generate structured tasks from subtask
-                ai_response = self.gemini_ai.generate_response(subtask, context)
-                
-                if not ai_response.get('success', False):
-                    results.append({
-                        'success': False,
-                        'response': f"Failed to process subtask: {subtask}",
-                        'error': ai_response.get('error', '')
-                    })
-                    overall_success = False
-                    continue
-                
-                # Extract structured actions
-                actions = ai_response.get('suggested_actions', [])
-                response_text = ai_response.get('response', '')
-                requires_action = ai_response.get('requires_action', False)
-                
-                if not requires_action or not actions:
-                    results.append({
-                        'success': True,
-                        'response': response_text,
-                        'requires_action': False,
-                        'actions_performed': []
-                    })
-                    continue
+            # Check if the response was successful and requires action
+            if not ai_response.get('success', False):
+                return {
+                    'success': False,
+                    'response': "Failed to generate a response to your request",
+                    'error': ai_response.get('error', '')
+                }
             
-                # Execute the actions for this subtask
-                execution_result = self.command_executor.execute_plan(actions)
-                
-                # Generate response for this subtask
-                subtask_response = self._generate_final_response(response_text, execution_result)
-                final_response += subtask_response + "\n"
-                
-                # Record in task history
-                self.task_history.append({
-                    'subtask': subtask,
-                    'actions': actions,
-                    'execution_result': execution_result,
-                    'response': subtask_response
-                })
-                
-                # Add execution results to overall results
-                results.append({
-                    'success': execution_result.get('success', False),
-                    'response': subtask_response,
-                    'requires_action': True,
-                    'actions_performed': execution_result.get('results', []),
-                    'execution_time': execution_result.get('total_execution_time', 0)
-                })
-                
-                if not execution_result.get('success', False):
-                    overall_success = False
+            # Extract structured actions
+            actions = ai_response.get('suggested_actions', [])
+            response_text = ai_response.get('response', '')
+            requires_action = ai_response.get('requires_action', False)
             
-            # Return combined results
+            if not requires_action or not actions:
+                # No actions needed, just return the conversational response
+                return {
+                    'success': True,
+                    'response': response_text,
+                    'requires_action': False,
+                    'actions_performed': []
+                }
+            
+            # Step 2: Local Agent → OS - Execute the actions
+            execution_result = self.command_executor.execute_plan(actions)
+            self.last_plan = actions
+            self.last_result = execution_result
+            
+            # Step 3: Generate the final response combining AI response and execution results
+            final_response = self._generate_final_response(response_text, execution_result)
+            
+            # Record in task history
+            self.task_history.append({
+                'user_input': user_input,
+                'actions': actions,
+                'execution_result': execution_result,
+                'final_response': final_response
+            })
+            
+            # Enhance results with action type information
+            results = execution_result.get('results', [])
+            for i, result in enumerate(results):
+                # If action_type is not set in the result, get it from the original actions
+                if not result.get('action_type') and i < len(actions):
+                    result['action_type'] = actions[i].get('type', 'unknown')
+            
             return {
-                'success': overall_success,
-                'response': final_response.strip(),
+                'success': execution_result.get('success', False),
+                'response': final_response,
                 'requires_action': True,
-                'subtask_results': results,
-                'execution_time': sum(r.get('execution_time', 0) for r in results)
+                'actions_performed': results,
+                'execution_time': execution_result.get('total_execution_time', 0)
             }
             
         except Exception as e:
