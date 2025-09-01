@@ -3,8 +3,7 @@ import json
 import logging
 import urllib.parse
 from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
-from dateutil import parser
+from datetime import datetime
 
 from plugins.file_manager import FileManager
 from plugins.app_controller import AppController
@@ -100,15 +99,12 @@ class CommandProcessor:
             (r'(?:create|make|new)\s+(?:google\s+)?(?:sheet|spreadsheet)\s+(.+)', self._handle_create_google_sheet),
             (r'(?:fill|populate)\s+(?:google\s+)?(?:sheet|spreadsheet)\s+(?:with|using)\s+(.+)', self._handle_fill_google_sheet),
             
-            # Email and calendar operations
-            (r'(?:compose|write|send|create|email)\s+(?:email|mail|message)\s+(?:to\s+)?([^\s]+@[^\s]+\.[^\s]+)(?:\s+(?:about|regarding|concerning|on|with|for)\s+(.+?)(?=\s+(?:body|content|with\s+body)|$))?(?:\s+(?:body|content|with\s+body)\s+(.+))?(?:\s+(?:using|via|with)\s+(?:outlook|hotmail))?', self._handle_web_email_compose),
-            (r'(?:switch|change)\s+(?:email|mail)\s+account\s*(?:to\s+)?(.+)?', self._handle_switch_email_account),
-            (r'(?:open|show|check)\s+(?:email|mail|inbox)\s*(?:for\s+)?(.+)?', self._handle_open_email),
-            (r'(?:schedule|create|send)\s+(?:meeting|calendar\s+invite|calendar\s+event)\s+(?:with|to)\s+([^\s]+@[^\s]+(?:\s*,\s*[^\s]+@[^\s]+)*)\s+(?:about|for|regarding)\s+(.+?)\s+(?:on|at|for)\s+(.+?)(?:\s+(?:for\s+)?([\d.]+)\s*(?:hour|hr|hours|hrs))?(?:\s+(?:using|via|with)\s+(?:outlook|google))?', self._handle_web_calendar_invite),
-            # AI Email operations
-            (r'(?:ai|smart|intelligent|auto)\s+(?:compose|write|send|create|draft)\s+(?:email|mail|message)\s+(?:to\s+)?(.+?)\s+(?:about|regarding|concerning|on|with|for)\s+(.+)', self._handle_ai_compose_email),
-            (r'(?:email|mail|message|write|send)\s+(?:to\s+)?(.+?)\s+(?:using|with|via)\s+(?:ai|smart|intelligent|auto)\s+(?:about|regarding|concerning|on|with|for)\s+(.+)', self._handle_ai_compose_email),
-            (r'(?:summarize|summary\s+of)\s+(?:my\s+)?(?:inbox|emails|mail)(?:\s+(?:last|recent|top)\s+(\d+))?', self._handle_summarize_inbox),
+            # Email operations
+            (r'(?:compose|write|send)\s+(?:email|mail)\s+(?:to\s+)?(.+)', self._handle_compose_email),
+            (r'(?:create|send)\s+(?:meeting\s+)?(?:invite|invitation)\s+(.+)', self._handle_create_meeting),
+            (r'(?:check|show)\s+(?:calendar|schedule)\s*(?:for\s+)?(.+)?', self._handle_check_calendar),
+            (r'(?:switch|change)\s+google\s+account\s*(?:to\s+)?(.+)?', self._handle_switch_google_account),
+            (r'(?:open|show)\s+gmail\s*(?:for\s+)?(.+)?', self._handle_open_gmail),
             
             # Automation
             (r'(?:organize|clean\s+up)\s+downloads', self._handle_organize_downloads),
@@ -156,48 +152,11 @@ class CommandProcessor:
             (r'(?:bash|sh)\s+(.+)', self._handle_run_bash),
         ]
     
-    def _break_down_command(self, command: str) -> List[str]:
-        """Break down a complex command into simpler subtasks.
-        
-        Args:
-            command: The original command string
-            
-        Returns:
-            List of subtask commands
-        """
-        # Use Gemini AI to break down complex commands if available
-        if self.gemini_ai:
-            try:
-                prompt = f"Break down this command into sequential subtasks: {command}\nReturn ONLY a list of commands, one per line."
-                response = self.gemini_ai.generate_response(prompt)
-                if response.get('success'):
-                    subtasks = [task.strip() for task in response['response'].split('\n') if task.strip()]
-                    if subtasks:
-                        return subtasks
-            except Exception as e:
-                logger.error(f"Failed to break down command using AI: {str(e)}")
-        
-        # Fallback: Basic command splitting based on conjunctions and separators
-        conjunctions = ['and', 'then', 'after', 'before', 'while', 'also']
-        command = command.lower()
-        
-        # Split on semicolons first
-        if ';' in command:
-            return [cmd.strip() for cmd in command.split(';') if cmd.strip()]
-        
-        # Try splitting on conjunctions
-        for conj in conjunctions:
-            if f" {conj} " in command:
-                return [cmd.strip() for cmd in command.split(f" {conj} ") if cmd.strip()]
-        
-        # If no splits found, return original command as single task
-        return [command]
-
     def process(self, command: str, context: List[Dict] = None) -> Dict[str, Any]:
         """Process a natural language command and return the result."""
         try:
             original_command = command
-            command = command.strip()
+            command = command.strip().lower()
             context = context or []
             
             logger.info(f"Processing command: {command}")
@@ -212,7 +171,7 @@ class CommandProcessor:
                     'metadata': {'security_blocked': True}
                 }
             
-            # Check if command needs user confirmation
+            # Check if command needs user confirmation (only for extremely dangerous commands)
             if security_result.get('needs_confirmation', False) and not security_result.get('auto_execute', True):
                 return {
                     'success': True,
@@ -228,34 +187,8 @@ class CommandProcessor:
                     }
                 }
             
-            # Break down complex commands into subtasks
-            subtasks = self._break_down_command(command)
-            
-            # Execute each subtask
-            results = []
-            overall_success = True
-            final_result = ""
-            
-            for subtask in subtasks:
-                result = self._execute_command(subtask, context, security_result)
-                results.append(result)
-                
-                if not result.get('success', False):
-                    overall_success = False
-                
-                subtask_result = result.get('result', '')
-                if subtask_result:
-                    final_result += subtask_result + "\n"
-            
-            return {
-                'success': overall_success,
-                'result': final_result.strip(),
-                'subtask_results': results,
-                'metadata': {
-                    'num_subtasks': len(subtasks),
-                    'all_completed': overall_success
-                }
-            }
+            # Proceed with execution (either auto-execute or already confirmed)
+            return self._execute_command(original_command, context, security_result)
             
         except Exception as e:
             logger.error(f"Error processing command: {str(e)}")
@@ -293,12 +226,7 @@ class CommandProcessor:
     def _execute_command(self, command: str, context: List[Dict], security_result: Dict) -> Dict[str, Any]:
         """Execute the validated command with fallback to simple responses when AI is unavailable."""
         try:
-            # Preserve original command and create lowercase version for matching
-            original_command = command.strip()
-            command_lower = original_command.lower()
-            
-            # Log execution attempt
-            logger.info(f"Executing command: {original_command}")
+            command_lower = command.strip().lower()
             
             # Handle common queries directly without AI
             if any(phrase in command_lower for phrase in ['what apps', 'which apps', 'connect with']):
@@ -310,11 +238,7 @@ class CommandProcessor:
                               "• Productivity: Calendar, Notes, Reminders\n"
                               "• Media: Music, Photos, Videos\n\n"
                               "What would you like me to help you with?",
-                    'metadata': {
-                        'method': 'direct_response',
-                        'command_type': 'query',
-                        'original_command': original_command
-                    }
+                    'metadata': {'method': 'direct_response'}
                 }
                 
             if any(phrase in command_lower for phrase in ['what can you do', 'help']):
@@ -331,46 +255,6 @@ class CommandProcessor:
                 }
             
             # Check for web browsing commands first (bypass AI when rate limited)
-            # Handle Gmail compose commands directly
-            if 'compose gmail' in command_lower or 'write gmail' in command_lower:
-                for pattern, handler in self.command_patterns:
-                    if handler == self._handle_gmail_compose:
-                        match = re.search(pattern, command_lower)
-                        if match:
-                            # Extract arguments for _handle_gmail_compose
-                            recipient_info = match.group(1)
-                            subject_value = match.group(2) if len(match.groups()) >= 2 else None
-                            
-                            # Call the handler directly and return its result
-                            body_value = match.group(3) if len(match.groups()) >= 3 else None
-
-                            result = self._handle_gmail_compose(recipient_info, subject=subject_value, body=body_value)
-                            return {
-                                'success': True,
-                                'result': result,
-                                'metadata': {'method': 'direct_gmail_compose'}
-                            }
-            
-            # Handle Mail app compose commands directly
-            if 'compose mail app' in command_lower or 'write mail app' in command_lower or 'compose mac mail' in command_lower or 'write mac mail' in command_lower:
-                for pattern, handler in self.command_patterns:
-                    if handler == self._handle_mail_compose:
-                        match = re.search(pattern, command_lower)
-                        if match:
-                            # Extract arguments for _handle_mail_compose
-                            recipient_info = match.group(1)
-                            subject_value = match.group(2) if len(match.groups()) >= 2 else None
-                            
-                            # Call the handler directly and return its result
-                            body_value = match.group(3) if len(match.groups()) >= 3 else None
-
-                            result = self._handle_mail_compose(recipient_info, subject=subject_value, body=body_value)
-                            return {
-                                'success': True,
-                                'result': result,
-                                'metadata': {'method': 'direct_mail_compose'}
-                            }
-
             if any(keyword in command.lower() for keyword in ['open', 'browse', 'visit', 'go to']) and any(site in command.lower() for site in ['website', 'site', 'github', 'openai', 'repo', 'repository', 'docs', 'documentation', 'python', 'react', 'node', 'javascript', 'typescript', 'vue', 'angular', 'docker', 'kubernetes', 'aws', 'azure', 'gcp', 'stackoverflow', 'reddit', 'twitter', 'linkedin', 'youtube', 'netflix', 'spotify', 'discord', 'slack', 'zoom', 'notion', 'figma', 'trello', 'asana', 'dropbox', 'gmail', 'outlook', 'yahoo', 'bing', 'duckduckgo', 'wikipedia', 'medium', 'dev.to', 'hashnode', 'producthunt', 'hackernews', 'techcrunch', 'the verge', 'ars technica', 'wired']):
                 try:
                     logger.info(f"[BROWSE] Direct web browsing for: {command}")
@@ -387,51 +271,21 @@ class CommandProcessor:
                 except Exception as e:
                     logger.warning(f"[BROWSE] Direct web browsing failed: {e}")
             
-            # Try breaking down complex commands first
+            # Try using Gemini AI if available
             if self.gemini_ai:
                 try:
-                    # Check if command needs breakdown
-                    subtasks = self._break_down_command(original_command)
-                    if len(subtasks) > 1:
-                        logger.info(f"Breaking down command into {len(subtasks)} subtasks")
-                        results = []
-                        for subtask in subtasks:
-                            subtask_response = self.gemini_ai.generate_response(
-                                subtask,
-                                context,
-                                self.get_available_actions()
-                            )
-                            if subtask_response.get('success'):
-                                if subtask_response.get('requires_action') and subtask_response.get('suggested_actions'):
-                                    for action in subtask_response['suggested_actions']:
-                                        action_result = self._execute_ai_suggested_action(action, subtask)
-                                        if action_result:
-                                            results.append(action_result)
-                                else:
-                                    results.append(subtask_response['response'])
-                        
-                        return {
-                            'success': True,
-                            'result': '\n'.join(results),
-                            'metadata': {
-                                'method': 'task_breakdown',
-                                'subtask_count': len(subtasks),
-                                'original_command': original_command
-                            }
-                        }
-                    
-                    # If no breakdown needed, proceed with normal AI processing
                     ai_response = self.gemini_ai.generate_response(
-                        original_command,
-                        context,
+                        command, 
+                        context, 
                         self.get_available_actions()
                     )
                     
                     if ai_response.get('success'):
+                        # If AI suggests specific actions, try to execute them
                         if ai_response.get('requires_action') and ai_response.get('suggested_actions'):
                             action_results = []
                             for action in ai_response['suggested_actions']:
-                                action_result = self._execute_ai_suggested_action(action, original_command)
+                                action_result = self._execute_ai_suggested_action(action, command)
                                 if action_result:
                                     action_results.append(action_result)
                             
@@ -443,6 +297,7 @@ class CommandProcessor:
                                     'metadata': {'method': 'ai_with_actions', 'actions': action_results}
                                 }
                         
+                        # Return AI response
                         return {
                             'success': True,
                             'result': ai_response['response'],
@@ -467,108 +322,6 @@ class CommandProcessor:
                 'metadata': {'error': str(e)}
             }
     
-    def _break_down_command(self, command: str) -> List[str]:
-        """Break down a complex command into simpler subtasks using enhanced AI and pattern recognition.
-        
-        Args:
-            command: The original command string to break down.
-            
-        Returns:
-            A list of subtask commands. If the command is simple enough,
-            returns a list containing only the original command.
-        """
-        if not self.gemini_ai:
-            return [command]
-            
-        try:
-            # Enhanced AI prompt for better task decomposition
-            breakdown_prompt = (
-                "You are a task decomposition expert. Break down this command into sequential, executable subtasks.\n"
-                "Rules:\n"
-                "1. Each subtask must be a complete, actionable command\n"
-                "2. Preserve important context and parameters across subtasks\n"
-                "3. Handle dependencies between subtasks\n"
-                "4. Consider error handling and validation steps\n"
-                "5. Break down complex operations into simpler steps\n"
-                "Output format: Return ONLY a numbered list of commands, one per line.\n\n"
-                f"Command to break down: {command}"
-            )
-            
-            response = self.gemini_ai.generate_response(
-                breakdown_prompt,
-                [],  # No context needed for breakdown
-                self.get_available_actions()
-            )
-            
-            if response.get('success'):
-                # Extract commands from numbered list format
-                if isinstance(response.get('response'), str):
-                    # Parse numbered list format (e.g., "1. Do this\n2. Do that")
-                    subtasks = []
-                    for line in response['response'].split('\n'):
-                        # Remove number prefix and clean up
-                        cleaned = re.sub(r'^\d+\.\s*', '', line).strip()
-                        if cleaned:
-                            subtasks.append(cleaned)
-                    if subtasks:
-                        return subtasks
-                
-                # Fallback to suggested actions if numbered list parsing fails
-                if response.get('suggested_actions'):
-                    subtasks = [action['command'] for action in response['suggested_actions']]
-                    if subtasks:
-                        return subtasks
-            
-            # Enhanced pattern-based fallback
-            # 1. Check for explicit sequence indicators
-            sequence_patterns = [
-                r'(?:first|1st|firstly)\s*[,:](.*?)(?:then|next|2nd|secondly|$)',
-                r'(?:then|next|2nd|secondly)\s*[,:](.*?)(?:then|next|3rd|thirdly|finally|lastly|$)',
-                r'(?:finally|lastly|last)\s*[,:](.*?)$'
-            ]
-            
-            for pattern in sequence_patterns:
-                matches = re.finditer(pattern, command, re.IGNORECASE)
-                subtasks = [match.group(1).strip() for match in matches if match.group(1).strip()]
-                if len(subtasks) > 1:
-                    return subtasks
-            
-            # 2. Check for conjunctions and action verbs
-            conjunctions = ['and', 'then', 'after that', 'next', 'finally', 'followed by', 'subsequently']
-            action_verbs = ['open', 'create', 'search', 'find', 'download', 'upload', 'send', 'move', 'copy', 'delete']
-            
-            # First try splitting on conjunctions
-            for conjunction in conjunctions:
-                if f" {conjunction} " in command.lower():
-                    parts = command.split(f" {conjunction} ")
-                    if len(parts) > 1:
-                        # Verify each part contains an action verb
-                        valid_parts = []
-                        for part in parts:
-                            # Check if part contains an action verb
-                            if any(verb in part.lower() for verb in action_verbs):
-                                valid_parts.append(part.strip())
-                            else:
-                                # Try to combine with previous part
-                                if valid_parts:
-                                    valid_parts[-1] = f"{valid_parts[-1]} {conjunction} {part.strip()}"
-                                else:
-                                    valid_parts.append(part.strip())
-                        if len(valid_parts) > 1:
-                            return valid_parts
-            
-            # 3. Check for semicolon separation
-            if ';' in command:
-                parts = [p.strip() for p in command.split(';') if p.strip()]
-                if len(parts) > 1:
-                    return parts
-            
-            return [command]
-            
-        except Exception as e:
-            logger.error(f"Error breaking down command: {e}")
-            return [command]
-            
     def _check_command_security(self, command: str) -> bool:
         """Check if command is allowed by security policy."""
         # For now, allow most commands but block potentially dangerous ones
@@ -1701,78 +1454,6 @@ Just tell me what you want to do in natural language!"""
         
         return self.plugins['email_manager'].compose_email(to=to_email, subject=subject)
     
-    def _handle_ai_compose_email(self, recipient: str, idea: str, context: List[Dict] = None) -> str:
-        """Handle AI-powered email composition."""
-        # Clean up recipient and idea
-        recipient = recipient.strip()
-        idea = idea.strip()
-        
-        # Use Gemini AI for email composition if available
-        if self.gemini_ai:
-            result = self.plugins['email_manager'].ai_compose_email(recipient, idea, self.gemini_ai)
-            # Return the result directly to execute the action
-            return result
-        else:
-            return "❌ AI is not available for email composition. Please try the regular email command."
-    
-    def _handle_summarize_inbox(self, count_str: str = None, context: List[Dict] = None) -> str:
-        """Handle inbox email summarization."""
-        # Default to 5 emails if not specified
-        count = 5
-        if count_str:
-            try:
-                count = int(count_str)
-                # Limit to reasonable number
-                count = min(max(count, 1), 20)
-            except ValueError:
-                pass
-        
-        # Use Gemini AI for email summarization if available
-        if self.gemini_ai:
-            return self.plugins['email_manager'].summarize_inbox(count, self.gemini_ai)
-        else:
-            return "❌ AI is not available for email summarization. Please check your inbox manually."
-    
-    def _handle_gmail_compose(self, recipient_info: str, subject_part: str = None, subject: str = None, body_part: str = None, body: str = None, context: List[Dict] = None) -> str:
-        """Handle Gmail composition directly in browser."""
-        # Parse recipient info
-        to_email = recipient_info.strip()
-        
-        # Handle subject if provided
-        email_subject = ""
-        if subject:
-            email_subject = subject.strip()
-
-        # Call the web_controller to open Gmail compose
-        email_body = ""
-        if body:
-            email_body = body.strip()
-        return self.plugins['web_controller'].open_gmail_compose(to_email, email_subject, email_body)
-        
-        # Use web controller to open Gmail compose - directly execute the action
-        result = self.plugins['web_controller'].open_gmail_compose(to=to_email, subject=email_subject)
-        
-        # Return the result directly instead of a JSON response
-        return result
-    
-    def _handle_mail_compose(self, recipient_info: str, subject: str = None, body: str = None, context: List[Dict] = None) -> str:
-        """Handle Mac Mail app composition."""
-        # Parse recipient info
-        to_email = recipient_info.strip()
-        
-        # Handle subject if provided
-        email_subject = ""
-        if subject:
-            email_subject = subject.strip()
-
-        # Handle body if provided
-        email_body = ""
-        if body:
-            email_body = body.strip()
-            
-        # Call the web_controller to open Mail app compose
-        return self.plugins['web_controller'].open_mail_compose(to_email, email_subject, email_body)
-    
     def _handle_create_meeting(self, meeting_info: str, context: List[Dict] = None) -> str:
         """Handle meeting invite creation."""
         # Simple parsing - could be enhanced with NLP
@@ -1808,134 +1489,9 @@ Just tell me what you want to do in natural language!"""
         """Handle Google account switching."""
         return self.plugins['email_manager'].switch_google_account(account_email)
     
-    def _handle_web_email_compose(self, match) -> str:
-        """Handle composing a new email message using web-based clients."""
-        to_address = match.group(1)
-        subject = match.group(2) if match.group(2) else ""
-        body = match.group(3) if match.group(3) else ""
-        
-        # Check if Outlook/Hotmail is explicitly requested
-        use_outlook = bool(match.group(4) and ('outlook' in match.group(4).lower() or 'hotmail' in match.group(4).lower()))
-        
-        if use_outlook:
-            # Build Outlook compose URL
-            base_url = "https://outlook.live.com/mail/0/deeplink/compose"
-            params = {}
-            if to_address:
-                params['to'] = to_address
-            if subject:
-                params['subject'] = subject
-            if body:
-                params['body'] = body
-            
-            outlook_url = base_url
-            if params:
-                query_string = urllib.parse.urlencode(params)
-                outlook_url += f"?{query_string}"
-            
-            webbrowser.open(outlook_url)
-            return f"✅ Opened Outlook compose to {to_address}"
-        else:
-            # Default to Gmail
-            return self.plugins['web_controller'].open_gmail_compose(
-                to=to_address,
-                subject=subject,
-                body=body
-            )
-
-    def _handle_switch_email_account(self, match) -> str:
-        """Handle switching between email accounts."""
-        account = match.group(1)
-        
-        # Default to Gmail account switching
-        url = "https://accounts.google.com/AccountChooser"
-        webbrowser.open(url)
-        
-        return "✅ Opened account switcher"
-
-    def _handle_open_email(self, match) -> str:
-        """Handle opening email inbox."""
-        account = match.group(1)
-        
-        # Default to Gmail
-        url = "https://mail.google.com"
-        webbrowser.open(url)
-        return "✅ Opened Gmail inbox"
-
-    def _handle_web_calendar_invite(self, match) -> str:
-        """Handle creating calendar invites using web-based calendars."""
-        attendees = [email.strip() for email in match.group(1).split(',')]
-        title = match.group(2).strip()
-        datetime_str = match.group(3).strip()
-        duration_hours = float(match.group(4)) if match.group(4) else 1.0
-        use_outlook = bool(match.group(5) and 'outlook' in match.group(5).lower())
-        
-        # Parse and format the datetime string
-        try:
-            # Try common datetime formats
-            for fmt in ["%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M", "%B %d %Y %H:%M", "%b %d %Y %H:%M"]:
-                try:
-                    dt = datetime.strptime(datetime_str, fmt)
-                    break
-                except ValueError:
-                    continue
-            else:
-                # If no format matches, try natural language parsing
-                from dateutil import parser
-                dt = parser.parse(datetime_str)
-            
-            # Use specified duration or default to 1 hour
-            end_dt = dt + timedelta(hours=duration_hours)
-            
-            if use_outlook:
-                # Format for Outlook (ISO format)
-                start_str = dt.isoformat()
-                end_str = end_dt.isoformat()
-                
-                # Build Outlook calendar event URL
-                base_url = "https://outlook.live.com/calendar/0/deeplink/compose"
-                params = {
-                    'subject': title,
-                    'startdt': start_str,
-                    'enddt': end_str,
-                    'to': ','.join(attendees)
-                }
-                
-                outlook_url = base_url
-                if params:
-                    query_string = urllib.parse.urlencode(params)
-                    outlook_url += f"?{query_string}"
-                
-                webbrowser.open(outlook_url)
-                result = f"✅ Opened Outlook calendar invite for {title} ({duration_hours} hour{'s' if duration_hours != 1 else ''})"
-                client = 'outlook'
-            else:
-                # Format for Google Calendar (Basic format)
-                start_str = dt.strftime('%Y%m%dT%H%M%S')
-                end_str = end_dt.strftime('%Y%m%dT%H%M%S')
-                
-                # Default to Google Calendar
-                base_url = "https://calendar.google.com/calendar/render"
-                params = {
-                    'action': 'TEMPLATE',
-                    'text': title,
-                    'dates': f"{start_str}/{end_str}",
-                    'add': ','.join(attendees)
-                }
-                
-                gcal_url = base_url
-                if params:
-                    query_string = urllib.parse.urlencode(params)
-                    gcal_url += f"?{query_string}"
-                
-                webbrowser.open(gcal_url)
-                result = f"✅ Opened Google Calendar invite for {title} ({duration_hours} hour{'s' if duration_hours != 1 else ''})"
-                client = 'google'
-            
-            return result
-            
-        except Exception as e:
-            return f"❌ Failed to parse date/time: {datetime_str}. Please use format like 'YYYY-MM-DD HH:MM' or 'Month DD YYYY HH:MM'."
+    def _handle_open_gmail(self, account: str = "", context: List[Dict] = None) -> str:
+        """Handle Gmail opening."""
+        return self.plugins['email_manager'].open_gmail(account)
     
     # Automation handlers
     def _handle_organize_downloads(self, context: List[Dict] = None) -> str:
