@@ -1,6 +1,6 @@
 # 🧠 Apx
 
-Cluely is a cross-platform desktop AI assistant that provides instant, always-available computer and web control through natural language commands.
+Apx is a cross-platform desktop AI assistant that provides instant, always-available computer and web control through natural language commands.
 
 ## ✨ Features
 
