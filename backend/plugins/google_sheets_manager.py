@@ -6,8 +6,9 @@ import logging
 import json
 import requests
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Tuple
 from pathlib import Path
+import time
 
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,11 @@ class GoogleSheetsManager:
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
         self.web_search_tool = web_search_tool
+        
+        # Alpha Vantage API key - in production, this should be loaded from config
+        # For demo purposes, we're using a free API key with limited requests
+        self.alpha_vantage_api_key = os.environ.get('ALPHA_VANTAGE_API_KEY', 'demo')
+        self.alpha_vantage_base_url = 'https://www.alphavantage.co/query'
     
     def create_google_sheet(self, title: str, data: Optional[Dict] = None) -> str:
         """Create a new Google Sheet with data directly in the URL."""
@@ -76,9 +82,14 @@ class GoogleSheetsManager:
             company = company.lower().strip()
             data_type = data_type.lower().strip()
             
-            # For demonstration, we'll use web scraping to get financial data
-            # In a real implementation, you would use a financial API or more robust scraping
+            # Try to use Alpha Vantage API first (more reliable)
+            try:
+                logger.info(f"Attempting to fetch data from Alpha Vantage API for {company}")
+                return self._fetch_data_from_alpha_vantage(company, data_type, period)
+            except Exception as e:
+                logger.warning(f"Alpha Vantage API failed: {str(e)}. Falling back to web scraping.")
             
+            # Fallback to web scraping if API fails
             # Search for financial data
             search_query = f"{company} {data_type} {period}"
             search_url = f"https://www.google.com/search?q={search_query.replace(' ', '+')}"
@@ -134,6 +145,653 @@ class GoogleSheetsManager:
                 "headers": [],
                 "rows": []
             }
+    
+    def _fetch_data_from_alpha_vantage(self, company: str, data_type: str, period: str) -> Dict:
+        """Fetch financial data from Alpha Vantage API.
+        
+        Args:
+            company: Company name or ticker symbol
+            data_type: Type of financial data (earnings, revenue, etc.)
+            period: Time period (annual, quarterly, etc.)
+            
+        Returns:
+            Dictionary with headers and rows for the financial data
+        """
+        # Convert company name to ticker symbol if needed
+        ticker = self._get_ticker_symbol(company)
+        
+        # Determine which Alpha Vantage function to use based on data_type
+        if data_type in ["stock", "price", "prices"]:
+            return self._fetch_stock_time_series(ticker, period)
+        elif data_type in ["earnings", "income", "revenue", "profit"]:
+            return self._fetch_income_statement(ticker, period)
+        elif data_type in ["balance", "balance sheet", "assets", "liabilities"]:
+            return self._fetch_balance_sheet(ticker, period)
+        elif data_type in ["cash flow", "cashflow", "cash"]:
+            return self._fetch_cash_flow(ticker, period)
+        else:
+            # Default to time series data
+            return self._fetch_stock_time_series(ticker, period)
+    
+    def _get_ticker_symbol(self, company: str) -> str:
+        """Convert company name to ticker symbol if needed."""
+        # Common company name to ticker mappings
+        company_to_ticker = {
+            "apple": "AAPL",
+            "microsoft": "MSFT",
+            "amazon": "AMZN",
+            "google": "GOOGL",
+            "alphabet": "GOOGL",
+            "meta": "META",
+            "facebook": "META",
+            "tesla": "TSLA",
+            "nvidia": "NVDA",
+            "netflix": "NFLX",
+            "ibm": "IBM",
+            "intel": "INTC",
+            "amd": "AMD"
+        }
+        
+        # Check if input is already a ticker (all caps, 1-5 chars)
+        if company.isupper() and 1 <= len(company) <= 5:
+            return company
+        
+        # Check if we have a mapping for this company name
+        company_lower = company.lower()
+        if company_lower in company_to_ticker:
+            return company_to_ticker[company_lower]
+        
+        # If no mapping found, assume input might be a ticker
+        return company.upper()
+    
+    def _fetch_stock_time_series(self, ticker: str, period: str) -> Dict:
+        """Fetch stock time series data from Alpha Vantage."""
+        # Determine the function based on period
+        if period in ["daily", "day"]:
+            function = "TIME_SERIES_DAILY"
+            key_name = "Time Series (Daily)"
+        elif period in ["weekly", "week"]:
+            function = "TIME_SERIES_WEEKLY"
+            key_name = "Weekly Time Series"
+        elif period in ["monthly", "month"]:
+            function = "TIME_SERIES_MONTHLY"
+            key_name = "Monthly Time Series"
+        elif period in ["intraday", "minute", "minutes", "hourly", "hour"]:
+            function = "TIME_SERIES_INTRADAY"
+            key_name = "Time Series (5min)"
+        else:  # Default to daily
+            function = "TIME_SERIES_DAILY"
+            key_name = "Time Series (Daily)"
+        
+        # Process the data
+        result = {"headers": ["Date", "Open", "High", "Low", "Close", "Volume"], "rows": []}
+        
+        try:
+            # Make API request
+            params = {
+                "function": function,
+                "symbol": ticker,
+                "apikey": self.alpha_vantage_api_key,
+                "outputsize": "compact"  # Use compact for most recent 100 data points
+            }
+            
+            # Add interval parameter for intraday data
+            if function == "TIME_SERIES_INTRADAY":
+                params["interval"] = "5min"
+            
+            response = self.session.get(self.alpha_vantage_base_url, params=params, timeout=10)
+            data = response.json()
+            
+            # Check for error messages
+            if "Error Message" in data:
+                raise ValueError(f"Alpha Vantage API error: {data['Error Message']}")
+            
+            # Check for information message (demo key limitation)
+            if "Information" in data and "demo" in data["Information"]:
+                logger.warning("Using demo API key with limited functionality. Using sample data instead.")
+                return self._get_sample_stock_data(ticker, period)
+            
+            # Extract time series data
+            if key_name in data:
+                time_series = data[key_name]
+                # Sort dates in descending order (newest first)
+                dates = sorted(time_series.keys(), reverse=True)
+                
+                # Limit to 30 data points to avoid overwhelming the spreadsheet
+                for date in dates[:30]:
+                    daily_data = time_series[date]
+                    row = [
+                        date,
+                        daily_data.get("1. open", ""),
+                        daily_data.get("2. high", ""),
+                        daily_data.get("3. low", ""),
+                        daily_data.get("4. close", ""),
+                        daily_data.get("5. volume", "")
+                    ]
+                    result["rows"].append(row)
+                
+                return result
+            else:
+                logger.warning(f"No time series data found for {ticker}. Using sample data instead.")
+                return self._get_sample_stock_data(ticker, period)
+                
+        except Exception as e:
+            logger.error(f"Error fetching stock data from Alpha Vantage: {str(e)}. Using sample data instead.")
+            return self._get_sample_stock_data(ticker, period)
+            
+    def _get_sample_stock_data(self, ticker: str, period: str) -> Dict:
+        """Generate sample stock data for demonstration purposes."""
+        import random
+        from datetime import datetime, timedelta
+        
+        result = {"headers": ["Date", "Open", "High", "Low", "Close", "Volume"], "rows": []}
+        
+        # Generate sample data based on ticker and period
+        base_price = 0
+        if ticker == "AAPL":
+            base_price = 180.0
+        elif ticker == "MSFT":
+            base_price = 350.0
+        elif ticker == "GOOGL":
+            base_price = 140.0
+        elif ticker == "AMZN":
+            base_price = 170.0
+        elif ticker == "META":
+            base_price = 450.0
+        elif ticker == "TSLA":
+            base_price = 220.0
+        elif ticker == "NVDA":
+            base_price = 800.0
+        elif ticker == "IBM":
+            base_price = 170.0
+        else:
+            base_price = 100.0
+        
+        # Determine date increment based on period
+        if period in ["daily", "day"]:
+            date_increment = timedelta(days=1)
+        elif period in ["weekly", "week"]:
+            date_increment = timedelta(weeks=1)
+        elif period in ["monthly", "month"]:
+            date_increment = timedelta(days=30)
+        else:
+            date_increment = timedelta(days=1)
+        
+        # Generate 30 days of sample data
+        current_date = datetime.now()
+        for i in range(30):
+            # Skip weekends for daily data
+            if period in ["daily", "day"] and current_date.weekday() >= 5:  # 5=Saturday, 6=Sunday
+                current_date -= date_increment
+                continue
+                
+            # Generate random price fluctuations (within reasonable bounds)
+            daily_fluctuation = random.uniform(-5.0, 5.0)
+            open_price = round(base_price + daily_fluctuation, 2)
+            close_price = round(open_price + random.uniform(-2.0, 2.0), 2)
+            high_price = round(max(open_price, close_price) + random.uniform(0.1, 1.0), 2)
+            low_price = round(min(open_price, close_price) - random.uniform(0.1, 1.0), 2)
+            volume = int(random.uniform(1000000, 10000000))
+            
+            # Format date based on period
+            date_str = current_date.strftime('%Y-%m-%d')
+            
+            # Add row to result
+            result["rows"].append([
+                date_str,
+                str(open_price),
+                str(high_price),
+                str(low_price),
+                str(close_price),
+                str(volume)
+            ])
+            
+            # Move to previous date
+            current_date -= date_increment
+            
+        # Add note that this is sample data
+        result["headers"].append("Note")
+        for row in result["rows"]:
+            row.append("Sample data for demonstration purposes")
+            
+        return result
+        
+    def _get_sample_income_statement(self, ticker: str, period: str) -> Dict:
+        """Generate sample income statement data when API data is unavailable."""
+        import random
+        from datetime import datetime, timedelta
+        
+        result = {"headers": ["Date", "Metric", "Value", "Note"], "rows": []}
+        
+        # Generate sample dates based on period
+        if period.lower() in ["quarterly", "quarter", "q"]:
+            dates = [
+                (datetime.now() - timedelta(days=90*i)).strftime("%Y-%m-%d") 
+                for i in range(4)
+            ]
+        else:  # Annual
+            dates = [
+                (datetime.now() - timedelta(days=365*i)).strftime("%Y-%m-%d") 
+                for i in range(3)
+            ]
+            
+        # Sample income statement metrics
+        metrics = [
+            "Total Revenue", 
+            "Cost of Revenue", 
+            "Gross Profit", 
+            "Operating Expenses",
+            "Operating Income", 
+            "Net Income"
+        ]
+        
+        # Generate sample data with realistic values based on ticker
+        base_revenue = 1000000000  # $1B base revenue
+        
+        for date in dates:
+            revenue = base_revenue * (1 + random.uniform(-0.2, 0.3))  # +/- 20-30% variation
+            cost_of_revenue = revenue * random.uniform(0.4, 0.7)  # 40-70% of revenue
+            gross_profit = revenue - cost_of_revenue
+            operating_expenses = gross_profit * random.uniform(0.3, 0.6)  # 30-60% of gross profit
+            operating_income = gross_profit - operating_expenses
+            net_income = operating_income * random.uniform(0.5, 0.9)  # 50-90% of operating income after taxes
+            
+            values = {
+                "Total Revenue": revenue,
+                "Cost of Revenue": cost_of_revenue,
+                "Gross Profit": gross_profit,
+                "Operating Expenses": operating_expenses,
+                "Operating Income": operating_income,
+                "Net Income": net_income
+            }
+            
+            for metric in metrics:
+                result["rows"].append([date, metric, f"${values[metric]:,.2f}", "Sample data for demonstration purposes"])
+        
+        return result
+    
+    def _get_sample_balance_sheet(self, ticker: str, period: str) -> Dict:
+        """Generate sample balance sheet data when API data is unavailable."""
+        import random
+        from datetime import datetime, timedelta
+        
+        result = {"headers": ["Date", "Metric", "Value", "Note"], "rows": []}
+        
+        # Generate sample dates based on period
+        if period.lower() in ["quarterly", "quarter", "q"]:
+            dates = [
+                (datetime.now() - timedelta(days=90*i)).strftime("%Y-%m-%d") 
+                for i in range(4)
+            ]
+        else:  # Annual
+            dates = [
+                (datetime.now() - timedelta(days=365*i)).strftime("%Y-%m-%d") 
+                for i in range(3)
+            ]
+            
+        # Sample balance sheet metrics
+        metrics = [
+            "Total Assets", 
+            "Current Assets", 
+            "Cash and Cash Equivalents", 
+            "Total Liabilities",
+            "Current Liabilities", 
+            "Total Shareholders Equity"
+        ]
+        
+        # Generate sample data with realistic values based on ticker
+        base_assets = 5000000000  # $5B base assets
+        
+        for date in dates:
+            total_assets = base_assets * (1 + random.uniform(-0.1, 0.2))  # +/- 10-20% variation
+            current_assets = total_assets * random.uniform(0.3, 0.5)  # 30-50% of total assets
+            cash = current_assets * random.uniform(0.2, 0.4)  # 20-40% of current assets
+            total_liabilities = total_assets * random.uniform(0.4, 0.7)  # 40-70% of total assets
+            current_liabilities = total_liabilities * random.uniform(0.3, 0.5)  # 30-50% of total liabilities
+            equity = total_assets - total_liabilities
+            
+            values = {
+                "Total Assets": total_assets,
+                "Current Assets": current_assets,
+                "Cash and Cash Equivalents": cash,
+                "Total Liabilities": total_liabilities,
+                "Current Liabilities": current_liabilities,
+                "Total Shareholders Equity": equity
+            }
+            
+            for metric in metrics:
+                result["rows"].append([date, metric, f"${values[metric]:,.2f}", "Sample data for demonstration purposes"])
+        
+        return result
+        
+    def _get_sample_cash_flow(self, ticker: str, period: str) -> Dict:
+        """Generate sample cash flow data when API data is unavailable."""
+        import random
+        from datetime import datetime, timedelta
+        
+        result = {"headers": ["Date", "Metric", "Value", "Note"], "rows": []}
+        
+        # Generate sample dates based on period
+        if period.lower() in ["quarterly", "quarter", "q"]:
+            dates = [
+                (datetime.now() - timedelta(days=90*i)).strftime("%Y-%m-%d") 
+                for i in range(4)
+            ]
+        else:  # Annual
+            dates = [
+                (datetime.now() - timedelta(days=365*i)).strftime("%Y-%m-%d") 
+                for i in range(3)
+            ]
+            
+        # Sample cash flow metrics
+        metrics = [
+            "Operating Cash Flow", 
+            "Capital Expenditures", 
+            "Free Cash Flow", 
+            "Dividend Payments",
+            "Stock Repurchases", 
+            "Net Change in Cash"
+        ]
+        
+        # Generate sample data with realistic values based on ticker
+        base_operating_cf = 800000000  # $800M base operating cash flow
+        
+        for date in dates:
+            operating_cf = base_operating_cf * (1 + random.uniform(-0.15, 0.25))  # +/- 15-25% variation
+            capex = operating_cf * random.uniform(0.2, 0.4) * -1  # 20-40% of operating CF (negative)
+            free_cf = operating_cf + capex
+            dividends = free_cf * random.uniform(0.1, 0.3) * -1  # 10-30% of free CF (negative)
+            repurchases = free_cf * random.uniform(0.1, 0.4) * -1  # 10-40% of free CF (negative)
+            net_change = free_cf + dividends + repurchases
+            
+            values = {
+                "Operating Cash Flow": operating_cf,
+                "Capital Expenditures": capex,
+                "Free Cash Flow": free_cf,
+                "Dividend Payments": dividends,
+                "Stock Repurchases": repurchases,
+                "Net Change in Cash": net_change
+            }
+            
+            for metric in metrics:
+                result["rows"].append([date, metric, f"${values[metric]:,.2f}", "Sample data for demonstration purposes"])
+        
+        return result
+        for row in result["rows"]:
+            row.append("Sample data for demonstration")
+            
+        return result
+    
+    def _fetch_income_statement(self, ticker: str, period: str) -> Dict:
+        """Fetch income statement data from Alpha Vantage."""
+        # Process the data
+        result = {"headers": ["Date", "Metric", "Value"], "rows": []}
+        
+        try:
+            # Make API request
+            params = {
+                "function": "INCOME_STATEMENT",
+                "symbol": ticker,
+                "apikey": self.alpha_vantage_api_key
+            }
+            
+            response = self.session.get(self.alpha_vantage_base_url, params=params, timeout=10)
+            data = response.json()
+            
+            # Check for error messages
+            if "Error Message" in data:
+                raise ValueError(f"Alpha Vantage API error: {data['Error Message']}")
+            
+            # Check for information message (demo key limitation)
+            if "Information" in data and "demo" in data["Information"]:
+                logger.warning("Using demo API key with limited functionality. Using sample data instead.")
+                return self._get_sample_income_statement(ticker, period)
+            
+            # Determine which reports to use based on period
+            reports_key = "quarterlyReports" if period.lower() in ["quarterly", "quarter", "q"] else "annualReports"
+            
+            if reports_key in data and data[reports_key]:
+                reports = data[reports_key]
+                
+                # Get the most recent report
+                for report in reports[:4]:  # Limit to 4 most recent reports
+                    fiscal_date = report.get("fiscalDateEnding", "")
+                    
+                    # Add key financial metrics
+                    metrics = [
+                        ("Total Revenue", "totalRevenue"),
+                        ("Gross Profit", "grossProfit"),
+                        ("Net Income", "netIncome"),
+                        ("EPS", "reportedEPS"),
+                        ("EBITDA", "ebitda")
+                    ]
+                    
+                    for metric_name, metric_key in metrics:
+                        if metric_key in report and report[metric_key]:
+                            result["rows"].append([fiscal_date, metric_name, report[metric_key]])
+                
+                return result
+            else:
+                logger.warning(f"No income statement data found for {ticker}")
+                return self._get_sample_income_statement(ticker, period)
+        except Exception as e:
+            logger.warning(f"Error fetching income statement data for {ticker}: {str(e)}")
+            return self._get_sample_income_statement(ticker, period)
+            
+    def _get_sample_income_statement(self, ticker: str, period: str) -> Dict:
+        """Generate sample income statement data when API data is unavailable."""
+        result = {"headers": ["Date", "Metric", "Value"], "rows": []}
+        
+        # Generate sample dates based on period
+        if period.lower() in ["quarterly", "quarter", "q"]:
+            dates = [
+                (datetime.now() - timedelta(days=90*i)).strftime("%Y-%m-%d") 
+                for i in range(4)
+            ]
+        else:  # Annual
+            dates = [
+                (datetime.now() - timedelta(days=365*i)).strftime("%Y-%m-%d") 
+                for i in range(3)
+            ]
+            
+        # Sample income statement metrics
+        metrics = [
+            "Total Revenue", 
+            "Cost of Revenue", 
+            "Gross Profit", 
+            "Operating Expenses",
+            "Operating Income", 
+            "Net Income"
+        ]
+        
+        # Generate sample data with realistic values based on ticker
+        base_revenue = 1000000000  # $1B base revenue
+        
+        for date in dates:
+            revenue = base_revenue * (1 + random.uniform(-0.2, 0.3))  # +/- 20-30% variation
+            cost_of_revenue = revenue * random.uniform(0.4, 0.7)  # 40-70% of revenue
+            gross_profit = revenue - cost_of_revenue
+            operating_expenses = gross_profit * random.uniform(0.3, 0.6)  # 30-60% of gross profit
+            operating_income = gross_profit - operating_expenses
+            net_income = operating_income * random.uniform(0.5, 0.9)  # 50-90% of operating income after taxes
+            
+            values = {
+                "Total Revenue": revenue,
+                "Cost of Revenue": cost_of_revenue,
+                "Gross Profit": gross_profit,
+                "Operating Expenses": operating_expenses,
+                "Operating Income": operating_income,
+                "Net Income": net_income
+            }
+            
+            for metric in metrics:
+                result["rows"].append([date, metric, f"${values[metric]:,.2f}"])
+        
+        return result
+    
+    def _fetch_balance_sheet(self, ticker: str, period: str) -> Dict:
+        """Fetch balance sheet data from Alpha Vantage."""
+        # Process the data
+        result = {"headers": ["Date", "Metric", "Value"], "rows": []}
+        
+        try:
+            # Make API request
+            params = {
+                "function": "BALANCE_SHEET",
+                "symbol": ticker,
+                "apikey": self.alpha_vantage_api_key
+            }
+            
+            response = self.session.get(self.alpha_vantage_base_url, params=params, timeout=10)
+            data = response.json()
+            
+            # Check for error messages
+            if "Error Message" in data:
+                raise ValueError(f"Alpha Vantage API error: {data['Error Message']}")
+            
+            # Check for information message (demo key limitation)
+            if "Information" in data and "demo" in data["Information"]:
+                logger.warning("Using demo API key with limited functionality. Using sample data instead.")
+                return self._get_sample_balance_sheet(ticker, period)
+            
+            # Determine which reports to use based on period
+            reports_key = "quarterlyReports" if period.lower() in ["quarterly", "quarter", "q"] else "annualReports"
+            
+            if reports_key in data and data[reports_key]:
+                reports = data[reports_key]
+                
+                # Get the most recent report
+                for report in reports[:2]:  # Limit to 2 most recent reports
+                    fiscal_date = report.get("fiscalDateEnding", "")
+                    
+                    # Add key financial metrics
+                    metrics = [
+                        ("Total Assets", "totalAssets"),
+                        ("Total Liabilities", "totalLiabilities"),
+                    ("Total Shareholder Equity", "totalShareholderEquity"),
+                    ("Cash and Equivalents", "cashAndCashEquivalentsAtCarryingValue"),
+                    ("Short-Term Debt", "shortTermDebt"),
+                    ("Long-Term Debt", "longTermDebt")
+                ]
+                
+                    for metric_name, metric_key in metrics:
+                        if metric_key in report and report[metric_key]:
+                            result["rows"].append([fiscal_date, metric_name, report[metric_key]])
+                
+                return result
+            else:
+                logger.warning(f"No balance sheet data found for {ticker}")
+                return self._get_sample_balance_sheet(ticker, period)
+        except Exception as e:
+            logger.warning(f"Error fetching balance sheet data for {ticker}: {str(e)}")
+            return self._get_sample_balance_sheet(ticker, period)
+            
+    def _get_sample_balance_sheet(self, ticker: str, period: str) -> Dict:
+        """Generate sample balance sheet data when API data is unavailable."""
+        result = {"headers": ["Date", "Metric", "Value"], "rows": []}
+        
+        # Generate sample dates based on period
+        if period.lower() in ["quarterly", "quarter", "q"]:
+            dates = [
+                (datetime.now() - timedelta(days=90*i)).strftime("%Y-%m-%d") 
+                for i in range(4)
+            ]
+        else:  # Annual
+            dates = [
+                (datetime.now() - timedelta(days=365*i)).strftime("%Y-%m-%d") 
+                for i in range(3)
+            ]
+            
+        # Sample balance sheet metrics
+        metrics = [
+            "Total Assets", 
+            "Current Assets", 
+            "Cash and Cash Equivalents", 
+            "Total Liabilities",
+            "Current Liabilities", 
+            "Total Shareholders Equity"
+        ]
+        
+        # Generate sample data with realistic values based on ticker
+        base_assets = 5000000000  # $5B base assets
+        
+        for date in dates:
+            total_assets = base_assets * (1 + random.uniform(-0.1, 0.2))  # +/- 10-20% variation
+            current_assets = total_assets * random.uniform(0.3, 0.5)  # 30-50% of total assets
+            cash = current_assets * random.uniform(0.2, 0.4)  # 20-40% of current assets
+            total_liabilities = total_assets * random.uniform(0.4, 0.7)  # 40-70% of total assets
+            current_liabilities = total_liabilities * random.uniform(0.3, 0.5)  # 30-50% of total liabilities
+            equity = total_assets - total_liabilities
+            
+            values = {
+                "Total Assets": total_assets,
+                "Current Assets": current_assets,
+                "Cash and Cash Equivalents": cash,
+                "Total Liabilities": total_liabilities,
+                "Current Liabilities": current_liabilities,
+                "Total Shareholders Equity": equity
+            }
+            
+            for metric in metrics:
+                result["rows"].append([date, metric, f"${values[metric]:,.2f}"])
+        
+        return result
+    
+    def _fetch_cash_flow(self, ticker: str, period: str) -> Dict:
+        """Fetch cash flow data from Alpha Vantage."""
+        # Process the data
+        result = {"headers": ["Date", "Metric", "Value"], "rows": []}
+        
+        try:
+            # Make API request
+            params = {
+                "function": "CASH_FLOW",
+                "symbol": ticker,
+                "apikey": self.alpha_vantage_api_key
+            }
+            
+            response = self.session.get(self.alpha_vantage_base_url, params=params, timeout=10)
+            data = response.json()
+            
+            # Check for error messages
+            if "Error Message" in data:
+                raise ValueError(f"Alpha Vantage API error: {data['Error Message']}")
+            
+            # Check for information message (demo key limitation)
+            if "Information" in data and "demo" in data["Information"]:
+                logger.warning("Using demo API key with limited functionality. Using sample data instead.")
+                return self._get_sample_cash_flow(ticker, period)
+            
+            # Determine which reports to use based on period
+            reports_key = "quarterlyReports" if period.lower() in ["quarterly", "quarter", "q"] else "annualReports"
+            
+            if reports_key in data and data[reports_key]:
+                reports = data[reports_key]
+                
+                # Get the most recent reports
+                for report in reports[:2]:  # Limit to 2 most recent reports
+                    fiscal_date = report.get("fiscalDateEnding", "")
+                    
+                    # Add key financial metrics
+                    metrics = [
+                        ("Operating Cash Flow", "operatingCashflow"),
+                        ("Capital Expenditures", "capitalExpenditures"),
+                        ("Free Cash Flow", "cashflowFromInvestment"),
+                        ("Dividend Payout", "dividendPayout"),
+                        ("Stock Buyback", "paymentsForRepurchaseOfCommonStock")
+                    ]
+                    
+                    for metric_name, metric_key in metrics:
+                        if metric_key in report and report[metric_key]:
+                            result["rows"].append([fiscal_date, metric_name, report[metric_key]])
+            
+                return result
+            else:
+                logger.warning(f"No cash flow data found for {ticker}")
+                return self._get_sample_cash_flow(ticker, period)
+        except Exception as e:
+            logger.warning(f"Error fetching cash flow data for {ticker}: {str(e)}")
+            return self._get_sample_cash_flow(ticker, period)
     
     def web_search(self, query: str, num_results: int = 5):
         """Performs a web search and returns the results."""

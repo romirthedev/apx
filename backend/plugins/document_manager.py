@@ -11,10 +11,11 @@ from typing import Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 class DocumentManager:
-    def __init__(self):
+    def __init__(self, google_sheets_manager=None):
         self.supported_formats = [
             'docx', 'xlsx', 'pptx', 'pdf', 'txt', 'md', 'csv', 'json'
         ]
+        self.google_sheets_manager = google_sheets_manager
     
     def create_word_document(self, filename: str, content: str = "") -> str:
         """Create a new Word document."""
@@ -379,6 +380,66 @@ RE: [Subject]
         
         data = template_data.get(template, None)
         return self.create_excel_spreadsheet(filename, data)
+    
+    def create_stock_document(self, company: str, data_type: str = "stock", period: str = "daily", format: str = "xlsx") -> str:
+        """Create a document with stock data for a company.
+        
+        Args:
+            company: Company name or ticker symbol
+            data_type: Type of financial data (stock, earnings, revenue, etc.)
+            period: Time period (daily, weekly, monthly, annual, quarterly)
+            format: Document format (xlsx, docx, pdf)
+            
+        Returns:
+            Status message
+        """
+        try:
+            if not self.google_sheets_manager:
+                return "❌ Cannot create stock document: Google Sheets Manager not available"
+            
+            # Fetch financial data using the Google Sheets Manager
+            financial_data = self.google_sheets_manager.fetch_financial_data(company, data_type, period)
+            
+            if not financial_data["headers"] or not financial_data["rows"]:
+                return f"❌ Failed to fetch financial data for {company}"
+            
+            # Create a title for the document
+            title = f"{company.title()} {data_type.title()} {period.title()} - {datetime.now().strftime('%Y-%m-%d')}"
+            
+            # Create document based on requested format
+            if format.lower() in ['xlsx', 'excel', 'spreadsheet']:
+                return self.create_excel_spreadsheet(title, financial_data)
+            elif format.lower() in ['docx', 'word', 'document']:
+                # Format data as text for Word document
+                content = self._format_financial_data_as_text(title, financial_data)
+                return self.create_word_document(title, content)
+            elif format.lower() in ['pdf']:
+                # Format data as text for PDF document
+                content = self._format_financial_data_as_text(title, financial_data)
+                return self.create_pdf_document(title, content)
+            else:
+                return f"❌ Unsupported format: {format}"
+                
+        except Exception as e:
+            logger.error(f"Failed to create stock document: {str(e)}")
+            return f"❌ Failed to create stock document: {str(e)}"
+    
+    def _format_financial_data_as_text(self, title: str, data: Dict) -> str:
+        """Format financial data as text for documents."""
+        content = f"{title}\n\n"
+        
+        # Add headers
+        if "headers" in data and data["headers"]:
+            content += " | ".join(data["headers"]) + "\n"
+            content += "-" * (sum(len(h) for h in data["headers"]) + (3 * (len(data["headers"]) - 1))) + "\n"
+        
+        # Add rows
+        if "rows" in data and data["rows"]:
+            for row in data["rows"]:
+                content += " | ".join(str(cell) for cell in row) + "\n"
+        
+        content += "\nDocument generated on " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return content
     
     def _create_ppt_template(self, template: str, filename: str, **kwargs) -> str:
         """Create PowerPoint document from template."""

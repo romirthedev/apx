@@ -94,6 +94,11 @@ class CommandProcessor:
             (r'(?:create|make|new)\s+(?:powerpoint\s+)?(?:presentation|ppt)\s+(.+)', self._handle_create_presentation),
             (r'(?:create|make|new)\s+pdf\s+(.+)', self._handle_create_pdf),
             
+            # Stock data document creation
+            (r'(?:create|make|new)\s+(?:word\s+)?(?:document|doc)\s+(?:about|for|on|with)\s+(.+?)\s+(?:stock|earnings|financials|financial\s+data)', self._handle_stock_document),
+            (r'(?:create|make|new)\s+(?:excel\s+)?(?:spreadsheet|sheet)\s+(?:about|for|on|with)\s+(.+?)\s+(?:stock|earnings|financials|financial\s+data)', self._handle_stock_spreadsheet),
+            (r'(?:create|make|new)\s+(?:pdf)\s+(?:about|for|on|with)\s+(.+?)\s+(?:stock|earnings|financials|financial\s+data)', self._handle_stock_pdf),
+            
             # Google Sheets operations
             (r'(?:create|make|new)\s+(?:google\s+)?(?:sheet|spreadsheet)\s+(?:about|for|on)\s+(.+)', self._handle_financial_spreadsheet),
             (r'(?:create|make|new)\s+(?:google\s+)?(?:sheet|spreadsheet)\s+(.+)', self._handle_create_google_sheet),
@@ -1604,19 +1609,19 @@ Just tell me what you want to do in natural language!"""
         """Handle Google Sheet creation."""
         return self.plugins['google_sheets_manager'].create_google_sheet(sheet_name)
     
-    def _handle_financial_spreadsheet(self, query: str, context: List[Dict] = None) -> str:
-        """Handle financial spreadsheet creation."""
+    def _extract_stock_data_params(self, query: str) -> Dict[str, Any]:
+        """Extract stock data parameters from a query."""
         # Extract company name from the query
         company_pattern = r'(microsoft|apple|google|alphabet|amazon|meta|facebook|tesla|netflix|nvidia|amd|intel)'
         company_match = re.search(company_pattern, query.lower())
         
         # Extract data type from the query
-        data_type_pattern = r'(earnings|revenue|profit|sales|growth|financial|income|balance sheet)'
+        data_type_pattern = r'(earnings|revenue|profit|sales|growth|financial|income|balance sheet|stock)'
         data_type_match = re.search(data_type_pattern, query.lower())
         
         # Set defaults if not found
         company = company_match.group(1) if company_match else "company"
-        data_type = data_type_match.group(1) if data_type_match else "earnings"
+        data_type = data_type_match.group(1) if data_type_match else "stock"
         
         # If no specific company was found, try to extract any company name
         if company == "company":
@@ -1627,7 +1632,112 @@ Just tell me what you want to do in natural language!"""
                     company = word
                     break
         
-        return self.plugins['google_sheets_manager'].create_financial_spreadsheet(company, data_type)
+        # Check for period keywords
+        period = "daily"  # Default for stock data
+        period_keywords = {
+            "annual": ["annual", "yearly", "year"],
+            "quarterly": ["quarterly", "quarter", "q1", "q2", "q3", "q4"],
+            "monthly": ["monthly", "month"],
+            "weekly": ["weekly", "week"],
+            "daily": ["daily", "day"]
+        }
+        
+        for p, keywords in period_keywords.items():
+            if any(keyword in query.lower() for keyword in keywords):
+                period = p
+                break
+                
+        # Check for year range
+        years = None
+        year_patterns = [
+            r'(?:past|last)\s+(\d+)\s+years?',
+            r'(\d+)\s+years?',
+            r'from\s+(\d{4})(?:\s+to\s+(\d{4}))?'
+        ]
+        
+        for pattern in year_patterns:
+            match = re.search(pattern, query.lower())
+            if match:
+                if pattern.startswith('from'):
+                    start_year = match.group(1)
+                    end_year = match.group(2) if len(match.groups()) > 1 and match.group(2) else None
+                    years = f"{start_year}-{end_year}" if end_year else f"{start_year}-present"
+                else:
+                    num_years = match.group(1)
+                    years = f"last {num_years} years"
+                break
+        
+        return {
+            "company": company,
+            "data_type": data_type,
+            "period": period,
+            "years": years
+        }
+    
+    def _handle_financial_spreadsheet(self, query: str, context: List[Dict] = None) -> str:
+        """Handle financial spreadsheet creation."""
+        params = self._extract_stock_data_params(query)
+        return self.plugins['google_sheets_manager'].create_financial_spreadsheet(params["company"], params["data_type"], params["period"])
+    
+    def _handle_stock_document(self, query: str, context: List[Dict] = None) -> str:
+        """Handle creating a Word document with stock data."""
+        params = self._extract_stock_data_params(query)
+        
+        # Create the document
+        from plugins.document_manager import DocumentManager
+        from plugins.google_sheets_manager import GoogleSheetsManager
+        
+        sheets_manager = GoogleSheetsManager()
+        doc_manager = DocumentManager(google_sheets_manager=sheets_manager)
+        
+        result = doc_manager.create_stock_document(
+            company=params["company"],
+            data_type=params["data_type"],
+            period=params["period"],
+            format="docx"
+        )
+        
+        return result
+    
+    def _handle_stock_spreadsheet(self, query: str, context: List[Dict] = None) -> str:
+        """Handle creating an Excel spreadsheet with stock data."""
+        params = self._extract_stock_data_params(query)
+        
+        # Create the spreadsheet
+        from plugins.document_manager import DocumentManager
+        from plugins.google_sheets_manager import GoogleSheetsManager
+        
+        sheets_manager = GoogleSheetsManager()
+        doc_manager = DocumentManager(google_sheets_manager=sheets_manager)
+        
+        result = doc_manager.create_stock_document(
+            company=params["company"],
+            data_type=params["data_type"],
+            period=params["period"],
+            format="xlsx"
+        )
+        
+        return result
+    
+    def _handle_stock_pdf(self, query: str, context: List[Dict] = None) -> str:
+        """Handle creating a PDF with stock data."""
+        params = self._extract_stock_data_params(query)
+        
+        # Create the PDF
+        from plugins.document_manager import DocumentManager
+        from plugins.google_sheets_manager import GoogleSheetsManager
+        
+        sheets_manager = GoogleSheetsManager()
+        doc_manager = DocumentManager(google_sheets_manager=sheets_manager)
+        
+        result = doc_manager.create_stock_document(
+            company=params["company"],
+            data_type=params["data_type"],
+            period=params["period"],
+            format="pdf"
+        )
+        
+        return result
     
     # The duplicate method was removed to eliminate duplication
     

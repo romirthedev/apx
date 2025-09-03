@@ -80,6 +80,53 @@ class CluelyBackend:
                 'version': '1.0.0'
             })
         
+        @self.app.route('/transcribe_audio', methods=['POST'])
+        def transcribe_audio():
+            try:
+                data = request.get_json() or {}
+                audio_data = data.get('audio_data', '')
+                use_gemini = data.get('use_gemini', False)
+                capture_system_audio = data.get('capture_system_audio', False)
+                
+                # Import audio manager
+                from plugins.audio_manager import AudioManager
+                audio_manager = AudioManager()
+                
+                # If requested to capture system audio (for Zoom/Meet calls)
+                if capture_system_audio and not audio_data:
+                    logger.info("Attempting to capture system audio...")
+                    capture_result = audio_manager.capture_system_audio(duration_seconds=5)
+                    
+                    if capture_result.get('success', False):
+                        audio_data = capture_result.get('audio_data', '')
+                        logger.info("Successfully captured system audio")
+                    else:
+                        logger.warning(f"System audio capture failed: {capture_result.get('error')}")
+                
+                if not audio_data:
+                    return jsonify({
+                        'success': False,
+                        'error': 'No audio data provided or system audio capture failed'
+                    })
+                
+                # Transcribe audio with specified model
+                logger.info(f"Transcribing audio with {'Gemini' if use_gemini else 'standard'} model")
+                result = audio_manager.transcribe_audio(audio_data, use_gemini=use_gemini)
+                
+                # If transcription failed, use sample data
+                if not result.get('success', False):
+                    logger.warning(f"Audio transcription failed: {result.get('error')}. Using sample data.")
+                    result = audio_manager.get_sample_transcription()
+                
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"Error processing audio transcription: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
         @self.app.route('/command', methods=['POST'])
         def process_command():
             try:

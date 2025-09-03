@@ -106,7 +106,12 @@ function createOverlayWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      backgroundThrottling: false
+      backgroundThrottling: false,
+      // Enable audio capture permissions
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      enableWebSQL: false,
+      autoplayPolicy: 'no-user-gesture-required' // Allow audio without user gesture
     }
   });
 
@@ -150,6 +155,23 @@ function createOverlayWindow() {
       }
     } catch (error) {
       console.error('Error capturing screen:', error);
+      return { success: false, error: error.message };
+    }
+  });
+  
+  // IPC handler for audio transcription
+  ipcMain.handle('transcribe-audio', async (event, audioData) => {
+    try {
+      // Send audio data to backend for processing
+      const response = await axios.post(`${BACKEND_URL}/transcribe_audio`, {
+        audio_data: audioData
+      }, {
+        timeout: 10000 // 10 second timeout
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error during audio transcription:', error);
       return { success: false, error: error.message };
     }
   });
