@@ -37,7 +37,65 @@
       margin: 20px auto;
       position: relative;
       overflow: hidden;
+      transition: background 0.3s ease;
     }
+    
+    /* Meeting mode styles */
+    .meeting-mode {
+      background: rgba(255, 0, 0, 0.1);
+      border: 1px solid rgba(255, 0, 0, 0.2);
+    }
+    
+    .meeting-indicator {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(255, 0, 0, 0.7);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      display: none;
+      z-index: 10;
+    }
+    
+    .meeting-indicator.active {
+    display: block;
+    animation: pulse 1.5s infinite;
+  }
+
+  .transcription-display {
+    position: relative;
+    margin: 10px;
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    max-height: 250px; /* Increased height */
+    overflow-y: auto;
+    font-size: 0.9em;
+    display: none; /* Hidden by default */
+  }
+  
+  /* Mini Transcription Overlay */
+  .mini-transcription {
+    position: absolute;
+    bottom: 70px;
+    right: 10px;
+    width: 300px;
+    max-height: 80px;
+    overflow-y: auto;
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px;
+    border-radius: 5px;
+    font-size: 12px;
+    line-height: 1.3;
+    z-index: 1002;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    transition: opacity 0.3s ease;
+    display: none; /* Hidden by default */
+  }
     
     /* Controls container at the top */
     .controls-container {
@@ -329,16 +387,17 @@
 </head>
 <body>
   <div class="overlay-container">
+    <div class="meeting-indicator" id="meetingIndicator">MEETING MODE ACTIVE - Listening...</div>
     <!-- Controls at the top -->
     <div class="controls-container">
       <button class="capture-btn" id="captureBtn">📸 Capture Screen</button>
       <div class="shortcuts">
-        <button class="shortcut-btn" id="webSearchBtn">🔍 Web Search</button>
-        <button class="shortcut-btn" id="fileBtn">📁 Files</button>
-        <button class="shortcut-btn" id="emailBtn">✉️ Email</button>
-        <button class="shortcut-btn" id="calendarBtn">📅 Calendar</button>
+        <button class="shortcut-btn" id="transcriptionBtn" style="display: none;">📝 Transcription</button>
+        <button class="shortcut-btn" id="meetingBtn">🎙️ Meeting Mode</button>
       </div>
     </div>
+    <div id="transcriptionDisplay" class="transcription-display"></div>
+    <div id="miniTranscription" class="mini-transcription"></div>
     
     <!-- Input container below controls -->
     <div class="input-container">
@@ -375,10 +434,7 @@
     const sendBtn = document.getElementById('sendBtn');
     
     // Shortcut buttons
-    const webSearchBtn = document.getElementById('webSearchBtn');
-    const fileBtn = document.getElementById('fileBtn');
-    const emailBtn = document.getElementById('emailBtn');
-    const calendarBtn = document.getElementById('calendarBtn');
+
     const captureBtn = document.getElementById('captureBtn');
     
     let isProcessing = false;
@@ -511,44 +567,359 @@
       }
     }
     
-    // Shortcut button handlers with command processing
-    webSearchBtn.addEventListener('click', async () => {
+
+    
+    // Meeting Mode variables and functionality
+    const meetingBtn = document.getElementById('meetingBtn');
+    const meetingIndicator = document.getElementById('meetingIndicator');
+    const overlayContainer = document.querySelector('.overlay-container');
+    const transcriptionDisplay = document.getElementById('transcriptionDisplay');
+    const transcriptionBtn = document.getElementById('transcriptionBtn');
+    let meetingModeActive = false;
+    let recognition = null;
+    let isUsingGeminiModel = false; // Flag to track if we're using Gemini for transcription
+    
+    // Initialize browser speech recognition on load
+    window.addEventListener('load', () => {
+      initBrowserSpeechRecognition();
+    });
+    
+    // Function to switch between browser and Gemini transcription
+    async function switchTranscriptionModel(useGemini) {
+      if (useGemini === isUsingGeminiModel) return; // No change needed
+      
+      // Stop current recognition if active
+      if (recognition) {
+        recognition.stop();
+        recognition = null;
+      }
+      
+      isUsingGeminiModel = useGemini;
+      
+      if (useGemini) {
+        // Using Gemini model for transcription
+        showResult('Switching to Gemini AI for enhanced transcription...', 'info');
+        // Clear any existing interim span
+        const existingInterimSpan = transcriptionDisplay.querySelector('.interim-text');
+        if (existingInterimSpan) {
+          existingInterimSpan.remove();
+        }
+      } else {
+        // Using browser's built-in speech recognition
+        initBrowserSpeechRecognition();
+      }
+      
+      // If meeting mode is active, start the appropriate recognition
+      if (meetingModeActive) {
+        if (useGemini) {
+          startGeminiTranscription();
+        } else if (recognition) {
+          recognition.start();
+        }
+      }
+    }
+    
+    // Start Gemini-based transcription
+    async function startGeminiTranscription() {
+      // Create a span for real-time transcription updates
+      let geminiInterimSpan = transcriptionDisplay.querySelector('.interim-text');
+      if (!geminiInterimSpan) {
+        geminiInterimSpan = document.createElement('span');
+        geminiInterimSpan.className = 'interim-text';
+        geminiInterimSpan.style.color = '#ccc';
+        transcriptionDisplay.appendChild(geminiInterimSpan);
+      }
+      
+      // Start audio capture including system audio (for Zoom/Meet)
+      try {
+        // This will be implemented to capture system audio
+        // For now, we'll simulate with regular audio capture
+        await captureAndProcessAudio(geminiInterimSpan);
+      } catch (error) {
+        console.error('Error starting Gemini transcription:', error);
+        showResult('Error starting transcription. Falling back to browser recognition.', 'error');
+        // Fall back to browser recognition
+        isUsingGeminiModel = false;
+        initBrowserSpeechRecognition();
+        if (recognition) recognition.start();
+      }
+    }
+    
+    // Capture and process audio for Gemini transcription
+    async function captureAndProcessAudio(interimSpan) {
+      // Set up audio capture
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      const audioChunks = [];
+      
+      // Process audio in chunks
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+      
+      // When a chunk is complete, send to backend for processing
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks);
+        const reader = new FileReader();
+        
+        reader.onloadend = async () => {
+          const base64Audio = reader.result.split(',')[1];
+          
+          try {
+            // Send to backend for Gemini processing
+            const response = await fetch('/transcribe_audio', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ 
+                audio_data: base64Audio,
+                use_gemini: true,
+                capture_system_audio: true // Enable system audio capture for Zoom/Meet calls
+              })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success && result.text) {
+              // Process the transcription
+              processMeetingTranscript(result.text);
+              // Clear interim span
+              if (interimSpan) interimSpan.textContent = '';
+            } else if (interimSpan) {
+              // Show error in interim span
+              interimSpan.textContent = 'Listening...';
+            }
+          } catch (error) {
+            console.error('Error processing audio:', error);
+            if (interimSpan) interimSpan.textContent = 'Error processing audio';
+          }
+          
+          // Continue recording if still in meeting mode
+          if (meetingModeActive && isUsingGeminiModel) {
+            audioChunks.length = 0; // Clear chunks
+            mediaRecorder.start();
+            setTimeout(() => {
+              if (mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+              }
+            }, 5000); // Process in 5-second chunks
+          } else {
+            // Clean up
+            stream.getTracks().forEach(track => track.stop());
+          }
+        };
+        
+        reader.readAsDataURL(audioBlob);
+      };
+      
+      // Start recording
+      mediaRecorder.start();
+      
+      // Stop after 5 seconds to process
+      setTimeout(() => {
+        if (mediaRecorder.state === 'recording') {
+          mediaRecorder.stop();
+        }
+      }, 5000);
+      
+      // Update UI
+      if (interimSpan) interimSpan.textContent = 'Listening for audio from microphone and system (Zoom/Meet calls)...';
+    }
+    
+    // Initialize browser's speech recognition
+    function initBrowserSpeechRecognition() {
+      if ('webkitSpeechRecognition' in window) {
+        recognition = new webkitSpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+        
+        const interimTranscriptionSpan = document.createElement('span');
+        interimTranscriptionSpan.className = 'interim-text';
+        interimTranscriptionSpan.style.color = '#ccc'; // Style for interim text
+        transcriptionDisplay.appendChild(interimTranscriptionSpan);
+
+        recognition.onresult = (event) => {
+          let interimTranscript = '';
+          let finalTranscript = '';
+
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalTranscript += transcript;
+            } else {
+              interimTranscript += transcript;
+            }
+          }
+
+          if (finalTranscript) {
+            processMeetingTranscript(finalTranscript);
+            interimTranscriptionSpan.textContent = ''; // Clear interim when final is received
+          } else {
+            interimTranscriptionSpan.textContent = interimTranscript;
+          }
+          transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
+        };
+        
+        recognition.onerror = (event) => {
+          console.error('Speech recognition error:', event.error);
+          if (meetingModeActive) {
+            // Try to restart recognition if it fails
+            setTimeout(() => {
+              if (meetingModeActive) {
+                recognition.start();
+              }
+            }, 1000);
+          }
+        };
+        
+        recognition.onend = () => {
+          // Restart recognition if meeting mode is still active
+          if (meetingModeActive) {
+            recognition.start();
+          }
+        };
+        return true;
+      } else {
+        alert('Speech recognition is not supported in this browser. Please use Chrome.');
+        return false;
+      }
+    }
+    
+    // Process meeting transcript
+    function processMeetingTranscript(transcript) {
+      // Append the transcript to a display area
+      const p = document.createElement('p');
+      p.textContent = transcript;
+      // Insert new final transcript before the interim span
+      transcriptionDisplay.insertBefore(p, transcriptionDisplay.lastChild);
+      // Scroll to the bottom to show the latest transcript
+      transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
+
+      // Check if transcript contains a question or important information
+      const questionPatterns = [
+        /what\s+is/i, /how\s+to/i, /why\s+is/i, /when\s+did/i, /where\s+is/i,
+        /can\s+you/i, /could\s+you/i, /would\s+you/i, /should\s+we/i,
+        /explain/i, /define/i, /calculate/i, /compute/i, /solve/i,
+        /\?$/
+      ];
+      
+      const isQuestion = questionPatterns.some(pattern => pattern.test(transcript));
+      
+      if (isQuestion) {
+        // Show a loading indicator in the transcription display
+        const loadingPara = document.createElement('p');
+        loadingPara.textContent = 'AI is thinking...';
+        loadingPara.style.color = '#4CAF50';
+        loadingPara.style.fontStyle = 'italic';
+        loadingPara.style.margin = '0 0 5px 0';
+        transcriptionDisplay.insertBefore(loadingPara, transcriptionDisplay.lastChild);
+        transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
+        
+        // Get AI response using Gemini
+        ipcRenderer.invoke('send-command', transcript)
+          .then(response => {
+            // Replace loading indicator with the response
+            const responsePara = document.createElement('p');
+            responsePara.textContent = '🤖 ' + (response.result || 'I processed your question but don\'t have a specific answer.');
+            responsePara.style.color = '#9c27b0';
+            responsePara.style.fontWeight = 'bold';
+            responsePara.style.margin = '0 0 10px 0';
+            responsePara.style.background = 'rgba(156, 39, 176, 0.1)';
+            responsePara.style.padding = '8px';
+            responsePara.style.borderRadius = '8px';
+            
+            transcriptionDisplay.replaceChild(responsePara, loadingPara);
+            transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
+            
+            // Also update mini transcription if active
+            if (document.getElementById('miniTranscription').style.display === 'block') {
+              updateMiniTranscription();
+            }
+          })
+          .catch(error => {
+            console.error('Error getting AI response:', error);
+            loadingPara.textContent = 'Error: Could not generate response';
+            loadingPara.style.color = '#f44336';
+          });
+      }
+    }
+    
+    // Meeting Mode button event listener
+    meetingBtn.addEventListener('click', async () => {
       if (!isProcessing) {
-        commandInput.value = 'search for ';
-        commandInput.focus();
-        const len = commandInput.value.length;
-        commandInput.setSelectionRange(len, len);
+        meetingModeActive = !meetingModeActive;
+        
+        if (meetingModeActive) {
+          // Switch to Gemini model for transcription in meeting mode
+          switchTranscriptionModel(true);
+          
+          // Activate meeting mode
+          overlayContainer.classList.add('meeting-mode');
+          meetingIndicator.classList.add('active');
+          transcriptionBtn.style.display = 'block'; // Show transcription button
+          transcriptionDisplay.style.display = 'block'; // Show transcription display
+          
+          // Notify user
+          showResult('Meeting Mode activated with Gemini AI. I\'m listening to your meeting and will provide real-time assistance when questions are detected.', 'success');
+        } else {
+          // Deactivate meeting mode
+          overlayContainer.classList.remove('meeting-mode');
+          meetingIndicator.classList.remove('active');
+          transcriptionBtn.style.display = 'none'; // Hide transcription button
+          transcriptionDisplay.style.display = 'none'; // Hide transcription display
+          
+          // Stop any active recognition
+          if (recognition) {
+            recognition.stop();
+          }
+          
+          // Stop Gemini transcription if active
+          if (isUsingGeminiModel) {
+            // Additional cleanup for Gemini transcription
+            switchTranscriptionModel(false);
+          }
+          
+          // Notify user
+          showResult('Meeting Mode deactivated.', 'success');
+        }
+      }
+    });
+
+    // Event listener for Transcription button
+    transcriptionBtn.addEventListener('click', () => {
+      const miniTranscription = document.getElementById('miniTranscription');
+      if (miniTranscription.style.display === 'none') {
+        miniTranscription.style.display = 'block';
+        // Start updating the mini transcription with recent lines
+        updateMiniTranscription();
+      } else {
+        miniTranscription.style.display = 'none';
       }
     });
     
-    fileBtn.addEventListener('click', async () => {
-      if (!isProcessing) {
-        commandInput.value = 'find file ';
-        commandInput.focus();
-        const len = commandInput.value.length;
-        commandInput.setSelectionRange(len, len);
+    // Function to update mini transcription with recent lines
+    function updateMiniTranscription() {
+      if (document.getElementById('miniTranscription').style.display === 'none') return;
+      
+      // Get the most recent content from transcriptionDisplay
+      const allLines = transcriptionDisplay.innerText.split('\n').filter(line => line.trim() !== '');
+      const recentLines = allLines.slice(-2); // Get last 2 lines
+      
+      // Update mini transcription
+      const miniTranscription = document.getElementById('miniTranscription');
+      miniTranscription.innerHTML = recentLines.join('<br>');
+      
+      // If using Gemini, also show interim results
+      const interimSpan = transcriptionDisplay.querySelector('.interim-text');
+      if (interimSpan && interimSpan.textContent.trim()) {
+        miniTranscription.innerHTML += '<br><span style="color: #ccc;">' + interimSpan.textContent + '</span>';
       }
-    });
-    
-    emailBtn.addEventListener('click', async () => {
-      if (!isProcessing) {
-        commandInput.value = 'compose email to ';
-        commandInput.focus();
-        const len = commandInput.value.length;
-        commandInput.setSelectionRange(len, len);
-        showActionStatus('✉️ Enter recipient and message...');
-      }
-    });
-    
-    calendarBtn.addEventListener('click', async () => {
-      if (!isProcessing) {
-        commandInput.value = 'schedule meeting ';
-        commandInput.focus();
-        const len = commandInput.value.length;
-        commandInput.setSelectionRange(len, len);
-        showActionStatus('📅 Enter calendar command or event details...');
-      }
-    });
+      
+      // Schedule next update
+      setTimeout(updateMiniTranscription, 500);
+    }
     
     captureBtn.addEventListener('click', async () => {
       hideResult();
