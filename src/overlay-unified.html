@@ -484,6 +484,25 @@
       commandInput.select();
     });
     
+    // Handle incoming messages from main process
+    ipcRenderer.on('overlay-chat-response', (event, response) => {
+      console.log('Received chat response:', response);
+      if (response.success) {
+        displayResponse(response.result);
+      } else {
+        displayResponse(`Error: ${response.error}`);
+      }
+    });
+
+    ipcRenderer.on('overlay-action-response', (event, response) => {
+      console.log('Received action response:', response);
+      if (response.success) {
+        displayResponse(`Action executed: ${response.result}`);
+      } else {
+        displayResponse(`Action error: ${response.error}`);
+      }
+    });
+    
     // Add click handlers to keep overlay open when interacting
     document.addEventListener('click', (e) => {
       console.log('🖱️ Overlay clicked - preventing auto-hide');

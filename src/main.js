@@ -125,6 +125,7 @@ function createOverlayWindow() {
     console.log('Overlay response state changed:', showing ? 'SHOWING' : 'HIDDEN');
   });
 
+function registerIpcHandlers() {
   // IPC handler to toggle mouse event ignoring
   ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
@@ -175,7 +176,8 @@ function createOverlayWindow() {
       return { success: false, error: error.message };
     }
   });
-  
+}
+
   // Handle overlay window errors
   overlayWindow.webContents.on('crashed', () => {
     console.error('Overlay window crashed, recreating...');
@@ -352,6 +354,7 @@ app.whenReady().then(() => {
     createMainWindow();
     createOverlayWindow();
     registerGlobalShortcuts();
+    registerIpcHandlers();
     startBackend();
     
     // Wait a moment for backend to start
@@ -419,7 +422,13 @@ ipcMain.handle('send-command', async (event, command) => {
       store.set('context', response.data.context);
     }
     
-    return response.data;
+    const responseData = response.data;
+    if (responseData.response_type === 'chat') {
+      overlayWindow.webContents.send('overlay-chat-response', responseData);
+    } else if (responseData.response_type === 'action') {
+      overlayWindow.webContents.send('overlay-action-response', responseData);
+    }
+    return responseData;
   } catch (error) {
     console.error('Error sending command to backend:', error);
     

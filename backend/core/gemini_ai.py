@@ -67,7 +67,7 @@ SYSTEM ACCESS:
 
 Be direct, immediate, and action-oriented. Users expect you to DO things, not discuss them. For ambiguous web requests, always search online for the correct site before navigating. Reason in steps and execute each step directly."""
 
-    def generate_response(self, user_input: str, context: List[Dict] = None, available_actions: List[str] = None) -> Dict[str, Any]:
+    def generate_response(self, user_input: str, context: List[Dict] = None, available_actions: List[str] = None, is_chat: bool = False) -> Dict[str, Any]:
         """Generate an AI response using Gemini with fallback to simple responses."""
         # Handle common queries without API call first
         lower_input = user_input.lower()
@@ -94,7 +94,23 @@ Be direct, immediate, and action-oriented. Users expect you to DO things, not di
             }
         
         try:
-            # Try to use Gemini API if available
+            # Use different prompts for chat vs command responses
+            if is_chat:
+                # Chat-focused prompt for conversational responses
+                chat_prompt = (
+                    "You are Cluely, a helpful AI assistant. Provide conversational, informative responses to user questions. "
+                    "Do NOT provide JSON responses or action commands. Just answer naturally and helpfully.\n\n"
+                    f"User question: {user_input}\n\n"
+                    "Provide a helpful, conversational response:"
+                )
+                
+                response = self.model.generate_content(chat_prompt)
+                return {
+                    'success': True,
+                    'response': response.text.strip()
+                }
+            
+            # Original command-focused logic for actions
             # Build the conversation context
             conversation_history = []
             
@@ -488,8 +504,22 @@ For conversational queries, respond normally without the JSON structure.""")
         
         try:
             prompt = (
-                "You are an intent classifier. Decide if the user's message is a command that requires taking an action on the computer, "
-                "or a conversational chat message. Respond ONLY with compact JSON.\n\n"
+                "You are an intent classifier. Decide if the user's message is a COMMAND that requires taking an action on the computer, "
+                "or a CHAT message that is just a question or conversation.\n\n"
+                "COMMANDS (require computer actions):\n"
+                "- 'open chrome' - launches an application\n"
+                "- 'create file notes.txt' - creates a file\n"
+                "- 'find largest file' - searches filesystem\n"
+                "- 'launch calculator' - opens an app\n"
+                "- 'delete temp files' - removes files\n"
+                "- 'take screenshot' - captures screen\n\n"
+                "CHAT (just questions/conversation):\n"
+                "- 'what is the largest rock' - general knowledge question\n"
+                "- 'how are you' - conversational\n"
+                "- 'what is python' - informational question\n"
+                "- 'tell me about AI' - general inquiry\n"
+                "- 'what's the weather like' - information request\n"
+                "- 'explain quantum physics' - educational question\n\n"
                 "User message: " + json.dumps(user_input) + "\n\n"
                 "Required JSON schema:\n"
                 "{\n"
