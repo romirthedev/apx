@@ -98,7 +98,7 @@ Be direct, immediate, and action-oriented. Users expect you to DO things, not di
             if is_chat:
                 # Chat-focused prompt for conversational responses
                 chat_prompt = (
-                    "You are Cluely, a helpful AI assistant. Provide conversational, informative responses to user questions. "
+                    "You are Cluely, a helpful AI assistant. Provide the direct answer to the user's question. If it seems like a friendly chat, be friendly, but if it is serious or direct, don't add fluff."
                     "Do NOT provide JSON responses or action commands. Just answer naturally and helpfully.\n\n"
                     f"User question: {user_input}\n\n"
                     "Provide a helpful, conversational response:"

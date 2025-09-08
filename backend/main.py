@@ -163,12 +163,14 @@ class CluelyBackend:
                             ai_resp = self.gemini_ai.generate_response(
                                 user_input=command,
                                 context=context,
-                                available_actions=self.command_processor.get_capabilities()
+                                available_actions=self.command_processor.get_capabilities(),
+                                is_chat=True
                             )
                             used_ai_chat = True
                             result = {
                                 'success': ai_resp.get('success', True),
                                 'result': ai_resp.get('response', ''),
+                                'response_type': 'chat',
                                 'metadata': {
                                     'method': 'gemini_ai_chat',
                                     'ai_frontdoor': ai_metadata
@@ -183,6 +185,8 @@ class CluelyBackend:
                 if not used_ai_chat:
                     logger.info("Task Planner disabled: routing directly to CommandProcessor")
                     result = self.command_processor.process(command, context)
+                    # Set response_type to action for command responses
+                    result['response_type'] = 'action'
                     # Merge AI metadata if present
                     if ai_metadata:
                         meta = result.get('metadata', {})
@@ -224,7 +228,8 @@ class CluelyBackend:
                     'result': result.get('result', ''),
                     'context': context,
                     'metadata': metadata,
-                    'is_ai_response': is_ai_response
+                    'is_ai_response': is_ai_response,
+                    'response_type': result.get('response_type', 'unknown')
                 }
                 
                 # Add debug info if result is empty
