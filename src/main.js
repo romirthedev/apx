@@ -66,7 +66,7 @@ function createMainWindow() {
     }
   });
 
-  mainWindow.loadFile('src/main.html');
+  mainWindow.loadFile(path.join(__dirname, 'main.html'));
   
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools();
@@ -108,7 +108,7 @@ function createOverlayWindow() {
       contextIsolation: false,
       backgroundThrottling: false,
       // Enable audio capture permissions
-      webSecurity: true,
+      webSecurity: false,
       allowRunningInsecureContent: false,
       enableWebSQL: false,
       autoplayPolicy: 'no-user-gesture-required' // Allow audio without user gesture
@@ -118,65 +118,12 @@ function createOverlayWindow() {
   // Allow mouse events to pass through by default
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
 
-  overlayWindow.loadFile('src/overlay-unified.html');
+  overlayWindow.loadFile(path.join(__dirname, 'overlay-unified.html'));
   
   // Listen for response state changes (for potential future features)
   ipcMain.on('overlay-showing-response', (event, showing) => {
     console.log('Overlay response state changed:', showing ? 'SHOWING' : 'HIDDEN');
   });
-
-function registerIpcHandlers() {
-  // IPC handler to toggle mouse event ignoring
-  ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
-    if (overlayWindow && !overlayWindow.isDestroyed()) {
-      overlayWindow.setIgnoreMouseEvents(ignore, options);
-    }
-  });
-
-  // IPC handler to trigger screen capture and OCR
-  ipcMain.handle('capture-and-ocr', async () => {
-    try {
-      const response = await axios.post(`${BACKEND_URL}/read_screen_text`);
-      return response.data.text;
-    } catch (error) {
-      console.error('Error during screen capture and OCR:', error);
-      return `Error: ${error.message}`;
-    }
-  });
-  
-  // IPC handler for screen capture
-  ipcMain.handle('capture-screen', async () => {
-    try {
-      const { desktopCapturer } = require('electron');
-      const sources = await desktopCapturer.getSources({ types: ['screen'] });
-      if (sources.length > 0) {
-        return { success: true, source: sources[0].id };
-      } else {
-        return { success: false, error: 'No screen sources found' };
-      }
-    } catch (error) {
-      console.error('Error capturing screen:', error);
-      return { success: false, error: error.message };
-    }
-  });
-  
-  // IPC handler for audio transcription
-  ipcMain.handle('transcribe-audio', async (event, audioData) => {
-    try {
-      // Send audio data to backend for processing
-      const response = await axios.post(`${BACKEND_URL}/transcribe_audio`, {
-        audio_data: audioData
-      }, {
-        timeout: 10000 // 10 second timeout
-      });
-      
-      return response.data;
-    } catch (error) {
-      console.error('Error during audio transcription:', error);
-      return { success: false, error: error.message };
-    }
-  });
-}
 
   // Handle overlay window errors
   overlayWindow.webContents.on('crashed', () => {
@@ -211,6 +158,79 @@ function registerIpcHandlers() {
   overlayWindow.on('closed', () => {
     console.log('Overlay window closed');
     overlayWindow = null;
+  });
+}
+
+function registerIpcHandlers() {
+  // IPC handler to toggle mouse event ignoring
+  ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.setIgnoreMouseEvents(ignore, options);
+    }
+  });
+
+  // IPC handler to trigger screen capture and OCR
+  ipcMain.handle('capture-and-ocr', async () => {
+    try {
+      const response = await axios.post(`${BACKEND_URL}/command`, {
+        command: 'read screen text',
+        context: store.get('context', [])
+      }, {
+        timeout: 30000,
+        family: 4
+      });
+      
+      if (response.data.success) {
+        return {
+          success: true,
+          text: response.data.result
+        };
+      } else {
+        return {
+          success: false,
+          error: response.data.error || 'OCR failed'
+        };
+      }
+    } catch (error) {
+      console.error('Error during screen capture and OCR:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+  
+  // IPC handler for screen capture
+  ipcMain.handle('capture-screen', async () => {
+    try {
+      const { desktopCapturer } = require('electron');
+      const sources = await desktopCapturer.getSources({ types: ['screen'] });
+      if (sources.length > 0) {
+        return { success: true, source: sources[0].id };
+      } else {
+        return { success: false, error: 'No screen sources found' };
+      }
+    } catch (error) {
+      console.error('Error capturing screen:', error);
+      return { success: false, error: error.message };
+    }
+  });
+  
+  // IPC handler for audio transcription
+  ipcMain.handle('transcribe-audio', async (event, audioData) => {
+    try {
+      // Send audio data to backend for processing
+      const response = await axios.post(`${BACKEND_URL}/transcribe_audio`, {
+        audio_data: audioData
+      }, {
+        timeout: 10000 // 10 second timeout
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error during audio transcription:', error);
+      return { success: false, error: error.message };
+    }
   });
 }
 
@@ -349,13 +369,20 @@ async function startBackend() {
   }, 500);
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  console.log('App is ready, initializing...');
   try {
+    console.log('Creating main window...');
     createMainWindow();
+    console.log('Creating overlay window...');
     createOverlayWindow();
+    console.log('Registering global shortcuts...');
     registerGlobalShortcuts();
+    console.log('Registering IPC handlers...');
     registerIpcHandlers();
-    startBackend();
+    console.log('Starting backend...');
+    await startBackend();
+    console.log('Backend startup completed');
     
     // Wait a moment for backend to start
     setTimeout(() => {
@@ -363,9 +390,11 @@ app.whenReady().then(() => {
     }, 3000);
   } catch (error) {
     console.error('Error during app initialization:', error);
+    console.error('Stack trace:', error.stack);
   }
 }).catch((error) => {
   console.error('Failed to initialize app:', error);
+  console.error('Stack trace:', error.stack);
 });
 
 app.on('window-all-closed', () => {

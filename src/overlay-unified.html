@@ -3,6 +3,15 @@
 <head>
   <meta charset="utf-8"/>
   <title>Cluely AI Assistant</title>
+  
+  <!-- Markdown rendering library -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+  
+  <!-- KaTeX for LaTeX rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css" integrity="sha384-GvrOXuhMATgEsSwCs4smul74iXGOixntILdUW9XmUC6+HX0sLNAK3q71HotJqlAn" crossorigin="anonymous">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js" integrity="sha384-cpW21h6RZv/phavutF+AuVYrr+dA8xD9zs6FwLpaCct6O9ctzYFfFr4dgmgccOTx" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+  
   <style>
     html {
       width: 100%;
@@ -339,6 +348,115 @@
       margin-bottom: 8px;
     }
     
+    /* Markdown styling for AI responses */
+    .result-text h1, .result-text h2, .result-text h3, .result-text h4, .result-text h5, .result-text h6 {
+      color: #ffffff;
+      margin: 16px 0 8px 0;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    
+    .result-text h1 { font-size: 24px; border-bottom: 2px solid rgba(255,255,255,0.2); padding-bottom: 8px; }
+    .result-text h2 { font-size: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; }
+    .result-text h3 { font-size: 18px; }
+    .result-text h4 { font-size: 16px; }
+    .result-text h5 { font-size: 14px; }
+    .result-text h6 { font-size: 12px; }
+    
+    .result-text p {
+      margin: 8px 0;
+      line-height: 1.6;
+    }
+    
+    .result-text code {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 13px;
+      color: #ffeb3b;
+    }
+    
+    .result-text pre {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 12px;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 12px 0;
+      border-left: 3px solid #4caf50;
+    }
+    
+    .result-text pre code {
+      background: none;
+      padding: 0;
+      color: #ffffff;
+      font-size: 13px;
+    }
+    
+    .result-text ul, .result-text ol {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+    
+    .result-text li {
+      margin: 4px 0;
+      line-height: 1.5;
+    }
+    
+    .result-text blockquote {
+      border-left: 4px solid #9c27b0;
+      margin: 12px 0;
+      padding: 8px 16px;
+      background: rgba(156, 39, 176, 0.1);
+      font-style: italic;
+    }
+    
+    .result-text table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 12px 0;
+    }
+    
+    .result-text th, .result-text td {
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 8px 12px;
+      text-align: left;
+    }
+    
+    .result-text th {
+      background: rgba(255, 255, 255, 0.1);
+      font-weight: 600;
+    }
+    
+    .result-text a {
+      color: #64b5f6;
+      text-decoration: none;
+    }
+    
+    .result-text a:hover {
+      text-decoration: underline;
+    }
+    
+    .result-text strong {
+      font-weight: 600;
+      color: #ffffff;
+    }
+    
+    .result-text em {
+      font-style: italic;
+      color: #e0e0e0;
+    }
+    
+    /* KaTeX equation styling */
+    .result-text .katex {
+      font-size: 1.1em;
+    }
+    
+    .result-text .katex-display {
+      margin: 16px 0;
+      text-align: center;
+    }
+    
     .typing-indicator {
       display: inline-block;
     }
@@ -382,6 +500,16 @@
     ::-webkit-scrollbar-thumb {
       background: rgba(255, 255, 255, 0.3);
       border-radius: 4px;
+    }
+    
+    /* LaTeX error styling */
+    .latex-error {
+      background-color: rgba(255, 0, 0, 0.1);
+      border: 1px solid rgba(255, 0, 0, 0.3);
+      border-radius: 4px;
+      padding: 2px 4px;
+      color: #ff6b6b;
+      font-family: 'Courier New', monospace;
     }
   </style>
 </head>
@@ -440,6 +568,7 @@
     let isProcessing = false;
     let currentResponse = '';
     let typingTimeout;
+    let capturedOCRText = null; // Store OCR text for ongoing Q&A
 
     // Enable/disable send button based on input
     commandInput.addEventListener('input', () => {
@@ -950,31 +1079,33 @@
           // Process the captured image with OCR
           const ocrResult = await ipcRenderer.invoke('capture-and-ocr', result.imagePath);
           
-          if (ocrResult && ocrResult.success) {
-            showResult(`Screen captured and processed:\n${ocrResult.text}`, 'success');
+          if (ocrResult && ocrResult.success && ocrResult.text) {
+            // Store OCR text globally for ongoing Q&A
+            capturedOCRText = ocrResult.text;
+            updateOCRIndicator();
             
-            // Ask if user wants AI analysis of the captured content
+            showResult(`Screen captured and processed:\n${ocrResult.text}\n\n💡 You can now ask questions about this captured content!`, 'success');
+            
+            // Automatically analyze the captured content with AI
             setTimeout(() => {
-              const shouldAnalyze = confirm('Would you like AI to analyze this captured content?');
-              if (shouldAnalyze) {
-                showActionStatus('🧠 Analyzing captured content with AI...');
-                // Send the OCR text to AI for analysis
-                ipcRenderer.invoke('send-command', `Analyze this captured content: ${ocrResult.text}`)
-                  .then(response => {
-                    if (response.success) {
-                      showResult(response.result, 'ai-response');
-                    } else {
-                      showResult(`AI analysis failed: ${response.error}`, 'error');
-                    }
-                  })
-                  .catch(error => {
-                    console.error('Error during AI analysis:', error);
-                    showResult(`Error during AI analysis: ${error.message}`, 'error');
-                  });
-              }
+              showActionStatus('🧠 Analyzing captured content with AI...');
+              // Send the OCR text to AI for analysis as a conversational query
+              ipcRenderer.invoke('send-command', `What does this captured content show? Please analyze and summarize: ${ocrResult.text}`)
+                .then(response => {
+                  if (response.success) {
+                    showResult(`${response.result}\n\n💬 Ask me anything about the captured content!`, 'success', response.is_ai_response || true);
+                  } else {
+                    showResult(`AI analysis failed: ${response.error}\n\n💬 You can still ask questions about the captured content!`, 'error');
+                  }
+                })
+                .catch(error => {
+                  console.error('Error during AI analysis:', error);
+                  showResult(`Error during AI analysis: ${error.message}\n\n💬 You can still ask questions about the captured content!`, 'error');
+                });
             }, 1000);
           } else {
-            showResult(`Screen captured but OCR failed: ${ocrResult ? ocrResult.error : 'Unknown error'}`, 'error');
+            const errorMsg = ocrResult && ocrResult.error ? ocrResult.error : 'Unknown OCR error';
+            showResult(`Screen captured but OCR failed: ${errorMsg}`, 'error');
           }
         } else {
           showResult(`❌ Screen capture failed: ${result.error}`, 'error');
@@ -1131,11 +1262,24 @@
             handleResponse(response);
           }
         }
+        // Handle clear OCR command
+        else if (command.toLowerCase().includes('clear') && (command.toLowerCase().includes('ocr') || command.toLowerCase().includes('captured') || command.toLowerCase().includes('content'))) {
+          capturedOCRText = null;
+          updateOCRIndicator();
+          showResult('📝 Captured content cleared. You can capture new content using the camera button.', 'success');
+        }
         // Regular command processing
         else {
           console.log('📡 Sending regular command...');
+          
+          // If we have captured OCR text, include it in the context for relevant questions
+          let enhancedCommand = command;
+          if (capturedOCRText && (command.toLowerCase().includes('what') || command.toLowerCase().includes('explain') || command.toLowerCase().includes('tell me') || command.toLowerCase().includes('describe') || command.toLowerCase().includes('analyze') || command.toLowerCase().includes('content') || command.toLowerCase().includes('text') || command.toLowerCase().includes('image') || command.toLowerCase().includes('screen'))) {
+            enhancedCommand = `Based on this captured content: "${capturedOCRText}", ${command}`;
+          }
+          
           console.log('Invoking ipcRenderer.invoke(\'send-command\') for regular command...');
-          const response = await ipcRenderer.invoke('send-command', command);
+          const response = await ipcRenderer.invoke('send-command', enhancedCommand);
           handleResponse(response);
         }
       } catch (error) {
@@ -1178,7 +1322,8 @@
               // Update result text if response message is available
               if (jsonResult.response) {
                 resultText = jsonResult.response;
-                isAiResponse = true;
+                // Keep the original isAiResponse flag from backend
+                // isAiResponse is already set from response.is_ai_response above
               }
             } catch (jsonError) {
               console.warn('Failed to parse JSON response:', jsonError);
@@ -1218,6 +1363,116 @@
       }
     }
     
+    function processMarkdownAndLatex(text) {
+      try {
+        console.log('🔍 Processing text for LaTeX:', text.substring(0, 200) + (text.length > 200 ? '...' : ''));
+        // First, protect LaTeX equations by temporarily replacing them
+        const latexBlocks = [];
+        const latexInline = [];
+        
+        // Extract display math ($$...$$ or \[...\])
+        let processedText = text.replace(/\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]/g, (match, eq1, eq2) => {
+          const equation = eq1 || eq2;
+          console.log('📐 Found display math equation:', equation.trim());
+          const index = latexBlocks.length;
+          latexBlocks.push(equation.trim());
+          return `LATEX_BLOCK_${index}`;
+        });
+        
+        // Extract inline math ($...$) - allow multi-line expressions
+        processedText = processedText.replace(/\$([^$]+?)\$/g, (match, equation) => {
+          console.log('📏 Found inline math equation:', equation.trim());
+          const index = latexInline.length;
+          latexInline.push(equation.trim());
+          return `LATEX_INLINE_${index}`;
+        });
+        
+        // Process Markdown
+        const htmlContent = marked.parse(processedText);
+        
+        // Restore LaTeX equations and render them
+        let finalContent = htmlContent;
+        
+        // Restore and render display math
+        latexBlocks.forEach((equation, index) => {
+          try {
+            const rendered = katex.renderToString(equation, {
+              displayMode: true,
+              throwOnError: false,
+              strict: false,
+              trust: true,
+              macros: {
+                "\\RR": "\\mathbb{R}",
+                "\\NN": "\\mathbb{N}",
+                "\\ZZ": "\\mathbb{Z}",
+                "\\QQ": "\\mathbb{Q}",
+                "\\CC": "\\mathbb{C}"
+              }
+            });
+            finalContent = finalContent.replace(`LATEX_BLOCK_${index}`, rendered);
+          } catch (e) {
+            console.error('LaTeX rendering error for block equation:', equation, 'Error:', e);
+            // Try to render with even more permissive settings
+            try {
+              const fallbackRendered = katex.renderToString(equation, {
+                displayMode: true,
+                throwOnError: false,
+                strict: 'ignore',
+                trust: true,
+                errorColor: '#cc0000'
+              });
+              finalContent = finalContent.replace(`LATEX_BLOCK_${index}`, fallbackRendered);
+            } catch (fallbackError) {
+              console.error('Fallback LaTeX rendering also failed:', fallbackError);
+              finalContent = finalContent.replace(`LATEX_BLOCK_${index}`, `<span class="latex-error">$$${equation}$$</span>`);
+            }
+          }
+        });
+        
+        // Restore and render inline math
+        latexInline.forEach((equation, index) => {
+          try {
+            const rendered = katex.renderToString(equation, {
+              displayMode: false,
+              throwOnError: false,
+              strict: false,
+              trust: true,
+              macros: {
+                "\\RR": "\\mathbb{R}",
+                "\\NN": "\\mathbb{N}",
+                "\\ZZ": "\\mathbb{Z}",
+                "\\QQ": "\\mathbb{Q}",
+                "\\CC": "\\mathbb{C}"
+              }
+            });
+            finalContent = finalContent.replace(`LATEX_INLINE_${index}`, rendered);
+          } catch (e) {
+            console.error('LaTeX rendering error for inline equation:', equation, 'Error:', e);
+            // Try to render with even more permissive settings
+            try {
+              const fallbackRendered = katex.renderToString(equation, {
+                displayMode: false,
+                throwOnError: false,
+                strict: 'ignore',
+                trust: true,
+                errorColor: '#cc0000'
+              });
+              finalContent = finalContent.replace(`LATEX_INLINE_${index}`, fallbackRendered);
+            } catch (fallbackError) {
+              console.error('Fallback LaTeX rendering also failed:', fallbackError);
+              finalContent = finalContent.replace(`LATEX_INLINE_${index}`, `<span class="latex-error">$${equation}$</span>`);
+            }
+          }
+        });
+        
+        return finalContent;
+      } catch (error) {
+        console.error('Markdown/LaTeX processing error:', error);
+        // Fallback to plain text if processing fails
+        return text.replace(/<[^>]*>/g, '');
+      }
+    }
+    
     function showResult(text, type = '', isAiResponse = false) {
       console.log('🔍 showResult called with:', { 
         textLength: text.length, 
@@ -1233,8 +1488,16 @@
       resultText.innerHTML = '';
       resultContent.className = 'result-content';
       
-      // Set the content
-      resultText.innerHTML = text;
+      // Set the content with Markdown and LaTeX rendering
+      if (isAiResponse) {
+        // Process Markdown and LaTeX for AI responses
+        const processedText = processMarkdownAndLatex(text);
+        resultText.innerHTML = processedText;
+      } else {
+        // For non-AI responses, strip HTML tags to prevent unwanted formatting
+        const strippedText = text.replace(/<[^>]*>/g, '');
+        resultText.innerHTML = strippedText;
+      }
       
       // Apply styling
       if (isAiResponse) {
@@ -1330,6 +1593,19 @@
       ipcRenderer.send('overlay-showing-response', false);
     }
     
+    function updateOCRIndicator() {
+      const captureBtn = document.getElementById('captureBtn');
+      if (capturedOCRText) {
+        captureBtn.style.background = 'linear-gradient(135deg, #4CAF50, #45a049)';
+        captureBtn.title = 'OCR content available - Click to capture new content or ask questions about current content';
+        captureBtn.innerHTML = '📷✨';
+      } else {
+        captureBtn.style.background = 'linear-gradient(135deg, #007AFF, #0056CC)';
+        captureBtn.title = 'Capture and read screen text';
+        captureBtn.innerHTML = '📷';
+      }
+    }
+    
     function hideOverlay() {
       console.log('🚪 hideOverlay called - stack trace:', new Error().stack);
       
@@ -1352,6 +1628,7 @@
     
     // Initialize
     setStatus('ready');
+    updateOCRIndicator();
     
     // Focus input when loaded
     window.addEventListener('load', () => {

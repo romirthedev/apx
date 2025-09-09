@@ -623,11 +623,12 @@
       ocrResultDiv.textContent = 'Capturing screen and performing OCR...';
 
       try {
-        const ocrText = await ipcRenderer.invoke('capture-and-ocr');
-        if (ocrText) {
-          ocrResultDiv.textContent = `OCR Result: ${ocrText.substring(0, 200)}...`; // Display first 200 chars
+        const ocrResult = await ipcRenderer.invoke('capture-and-ocr');
+        if (ocrResult && ocrResult.success && ocrResult.text) {
+          ocrResultDiv.textContent = `OCR Result: ${ocrResult.text.substring(0, 200)}...`; // Display first 200 chars
         } else {
-          ocrResultDiv.textContent = 'No text found or OCR failed.';
+          const errorMsg = ocrResult && ocrResult.error ? ocrResult.error : 'No text found or OCR failed';
+          ocrResultDiv.textContent = errorMsg;
         }
       } catch (error) {
         ocrResultDiv.textContent = `Error during OCR: ${error.message}`;

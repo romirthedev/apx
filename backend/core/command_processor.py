@@ -86,6 +86,7 @@ class CommandProcessor:
             (r'(?:type|enter)\s+(?:text\s+)?["\'](.+)["\']', self._handle_type_text),
             (r'(?:press|hit)\s+(?:key\s+)?(.+)', self._handle_press_keys),
             (r'(?:take|capture)\s+(?:a\s+)?screenshot', self._handle_screenshot),
+            (r'(?:read|get|extract)\s+(?:screen\s+)?text', self._handle_read_screen_text),
             (r'(?:control|manage)\s+window\s+(.+)', self._handle_window_control),
             
             # Document creation
@@ -1589,6 +1590,13 @@ Just tell me what you want to do in natural language!"""
             return "❌ System control only available on macOS"
         
         return self.system_controller.take_screenshot()
+    
+    def _handle_read_screen_text(self, context: List[Dict] = None) -> str:
+        """Handle reading text from screen using OCR."""
+        if not self.system_controller:
+            return "❌ System control only available on macOS"
+        
+        return self.system_controller.read_screen_text()
     
     def _handle_window_control(self, command: str, context: List[Dict] = None) -> str:
         """Handle window control commands."""
