@@ -1,4 +1,5 @@
 const { app, BrowserWindow, globalShortcut, ipcMain, screen } = require('electron');
+const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const Store = require('electron-store');
@@ -119,6 +120,7 @@ function createOverlayWindow() {
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
 
   overlayWindow.loadFile(path.join(__dirname, 'overlay-unified.html'));
+
   
   // Listen for response state changes (for potential future features)
   ipcMain.on('overlay-showing-response', (event, showing) => {
@@ -199,6 +201,62 @@ function registerIpcHandlers() {
       };
     }
   });
+
+  // IPC handler for enhanced web search
+  ipcMain.handle('enhanced-web-search', async (event, query) => {
+    return new Promise((resolve) => {
+      const pythonExecutable = resolvePythonExecutable();
+      const scriptPath = path.join(__dirname, '..', 'backend', 'generated_capabilities', 'enhanced_web_search_automation.py');
+      const process = spawn(pythonExecutable, [scriptPath, query]);
+
+      let output = '';
+      let errorOutput = '';
+
+      process.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      process.stderr.on('data', (data) => {
+        errorOutput += data.toString();
+      });
+
+      process.on('close', (code) => {
+        if (code === 0) {
+          const lines = output.trim().split('\n');
+          const resultLine = lines.find(line => line.startsWith('SUCCESS:'));
+          
+          if (resultLine) {
+            const [, success, title, url, type] = resultLine.split(':');
+            resolve({
+              success: success === 'True',
+              title: title || 'Search Result',
+              opened_url: url || '',
+              query_type: type || 'general'
+            });
+          } else {
+            resolve({
+              success: false,
+              error: 'No valid result found'
+            });
+          }
+        } else {
+          console.error('Enhanced web search error:', errorOutput);
+          resolve({
+            success: false,
+            error: errorOutput || 'Search process failed'
+          });
+        }
+      });
+      
+      process.on('error', (error) => {
+        console.error('Enhanced web search process error:', error);
+        resolve({
+          success: false,
+          error: error.message
+        });
+      });
+    });
+  });
   
   // IPC handler for screen capture
   ipcMain.handle('capture-screen', async () => {
@@ -232,6 +290,8 @@ function registerIpcHandlers() {
       return { success: false, error: error.message };
     }
   });
+      
+
 }
 
 function registerGlobalShortcuts() {

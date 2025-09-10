@@ -18,6 +18,7 @@ from core.nlp_processor import NLPProcessor
 from core.gemini_ai import GeminiAI
 from core.macos_permissions import MacOSPermissionsManager
 from core.macos_controller import MacOSSystemController
+from core.self_improvement import SelfImprovementEngine
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,16 @@ class CommandProcessor:
             except Exception as e:
                 logger.error(f"Failed to initialize Gemini AI: {str(e)}")
                 self.gemini_ai = None
+        
+        # Initialize self-improvement engine
+        self.self_improvement = None
+        if self.gemini_ai:
+            try:
+                self.self_improvement = SelfImprovementEngine(self.gemini_ai, security_manager)
+                logger.info("Self-improvement engine initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize self-improvement engine: {str(e)}")
+                self.self_improvement = None
         
         # Initialize plugins
         self.plugins = {
@@ -280,6 +291,36 @@ class CommandProcessor:
             # Try using Gemini AI if available
             if self.gemini_ai:
                 try:
+                    # First, check if we need self-improvement for this task
+                    if self.self_improvement:
+                        available_actions = self.get_available_actions()
+                        assessment = self.self_improvement.assess_capability_gap(command, available_actions)
+                        
+                        # If we can't handle the task with existing capabilities, try self-improvement
+                        if not assessment.get('can_handle', True) and assessment.get('confidence', 0) > 0.6:
+                            logger.info(f"Attempting self-improvement for task: {command}")
+                            improvement_result = self.self_improvement.self_improve_for_task(command, available_actions)
+                            
+                            if improvement_result.get('success'):
+                                if improvement_result.get('used_existing_capability'):
+                                    # Task can be handled with existing capabilities, proceed normally
+                                    pass
+                                else:
+                                    # Successfully generated and used new capability
+                                    return {
+                                        'success': True,
+                                        'result': f"✨ **Self-Improvement Success!**\n\n{improvement_result.get('message', '')}\n\n**Result:** {improvement_result.get('result', 'Task completed successfully')}",
+                                        'metadata': {
+                                            'method': 'self_improvement',
+                                            'generated_module': improvement_result.get('generated_module'),
+                                            'assessment': improvement_result.get('assessment')
+                                        }
+                                    }
+                            else:
+                                # Self-improvement failed, log it but continue with normal AI processing
+                                logger.warning(f"Self-improvement failed: {improvement_result.get('error', 'Unknown error')}")
+                    
+                    # Proceed with normal AI response generation
                     ai_response = self.gemini_ai.generate_response(
                         command, 
                         context, 

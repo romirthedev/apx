@@ -520,6 +520,7 @@
     <div class="controls-container">
       <button class="capture-btn" id="captureBtn">📸 Capture Screen</button>
       <div class="shortcuts">
+        <button class="shortcut-btn" id="webSearchBtn">🔍 Web Search</button>
         <button class="shortcut-btn" id="transcriptionBtn" style="display: none;">📝 Transcription</button>
         <button class="shortcut-btn" id="meetingBtn">🎙️ Meeting Mode</button>
       </div>
@@ -564,11 +565,13 @@
     // Shortcut buttons
 
     const captureBtn = document.getElementById('captureBtn');
+    const webSearchBtn = document.getElementById('webSearchBtn');
     
     let isProcessing = false;
     let currentResponse = '';
     let typingTimeout;
     let capturedOCRText = null; // Store OCR text for ongoing Q&A
+    let webSearchMode = false; // Track if next input should be a web search
 
     // Enable/disable send button based on input
     commandInput.addEventListener('input', () => {
@@ -582,7 +585,16 @@
         isProcessing = true;
         setStatus('thinking');
         try {
-          const response = await processCommand(command);
+          let response;
+          if (webSearchMode) {
+            // Handle web search request
+            response = await processWebSearch(command);
+            webSearchMode = false; // Reset web search mode
+            updateWebSearchButton(); // Update button appearance
+          } else {
+            // Handle normal command
+            response = await processCommand(command);
+          }
           await handleResponse(response);
           commandInput.value = ''; // Clear input after successful processing
         } catch (error) {
@@ -606,6 +618,65 @@
     sendBtn.addEventListener('click', () => {
       processUserInput();
     });
+    
+    // Web Search button event listener
+    webSearchBtn.addEventListener('click', () => {
+      webSearchMode = !webSearchMode;
+      updateWebSearchButton();
+      if (webSearchMode) {
+        commandInput.placeholder = 'Enter your search query...';
+        commandInput.focus();
+      } else {
+        commandInput.placeholder = 'Ask me anything...';
+      }
+    });
+    
+    // Function to update Web Search button appearance
+    function updateWebSearchButton() {
+      if (webSearchMode) {
+        webSearchBtn.style.background = 'rgba(76, 175, 80, 0.3)';
+        webSearchBtn.style.borderColor = 'rgba(76, 175, 80, 0.5)';
+        webSearchBtn.style.color = '#4CAF50';
+        webSearchBtn.innerHTML = '🔍 Web Search (Active)';
+      } else {
+        webSearchBtn.style.background = 'rgba(255, 255, 255, 0.15)';
+        webSearchBtn.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+        webSearchBtn.style.color = '#ffffff';
+        webSearchBtn.innerHTML = '🔍 Web Search';
+      }
+    }
+    
+    // Function to process web search requests
+    async function processWebSearch(query) {
+      try {
+        showResult('🔍 Searching the web...', 'thinking');
+        
+        // Call the enhanced web search automation
+        const searchResult = await ipcRenderer.invoke('enhanced-web-search', query);
+        
+        if (searchResult && searchResult.success) {
+          return {
+            success: true,
+            result: `🔍 **Web Search Results for "${query}"**\n\n` +
+                   `**${searchResult.title}**\n` +
+                   `🔗 [${searchResult.opened_url}](${searchResult.opened_url})\n\n` +
+                   `*Search completed successfully. The link has been opened in your browser.*`,
+            type: 'web_search'
+          };
+        } else {
+          return {
+            success: false,
+            error: searchResult?.error || 'Web search failed'
+          };
+        }
+      } catch (error) {
+        console.error('Web search error:', error);
+        return {
+          success: false,
+          error: `Web search failed: ${error.message}`
+        };
+      }
+    }
     
     // Focus input when overlay is shown
     ipcRenderer.on('focus-input', () => {
