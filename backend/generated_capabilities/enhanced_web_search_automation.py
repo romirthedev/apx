@@ -41,7 +41,7 @@ class EnhancedWebSearchAutomation:
             'github_repo': r'(?:github|gh)\s+(?:repo|repository)\s+(?:for|of|about)?\s*(.+)',
             'npm_package': r'npm\s+(?:package|module)\s+(?:for|of|about)?\s*(.+)',
             'pypi_package': r'(?:pypi|pip)\s+(?:package|module)\s+(?:for|of|about)?\s*(.+)',
-            'product_search': r'(?:find|search|best|top|good)\s+(.+?)\s+(?:case|cover|accessory|product|item)',
+            'product_search': r'(?:find|search|best|top|good|buy|purchase|get|need)\s+(.+?)(?:\s+(?:case|cover|accessory|product|item))?$',
             'documentation': r'(?:docs|documentation)\s+(?:for|of|about)?\s*(.+)',
             'tutorial': r'(?:tutorial|guide|how\s+to)\s+(.+)',
             'download': r'download\s+(.+)',
@@ -91,7 +91,7 @@ class EnhancedWebSearchAutomation:
             return 'npm_package'
         elif any(word in query_lower for word in ['pip', 'pypi', 'python']):
             return 'pypi_package'
-        elif any(word in query_lower for word in ['best', 'top', 'find', 'good', 'case', 'cover', 'headphones', 'earbuds', 'speaker', 'phone', 'laptop', 'computer', 'tablet', 'watch', 'camera', 'charger', 'cable', 'adapter', 'keyboard', 'mouse', 'monitor', 'tv', 'gaming', 'wireless', 'bluetooth', 'usb', 'hdmi', 'iphone', 'samsung', 'apple', 'google', 'sony', 'lg', 'hp', 'dell', 'buy', 'purchase', 'price']):
+        elif any(word in query_lower for word in ['best', 'top', 'find', 'good', 'case', 'cover', 'headphones', 'earbuds', 'speaker', 'phone', 'laptop', 'computer', 'tablet', 'watch', 'camera', 'charger', 'cable', 'adapter', 'keyboard', 'mouse', 'monitor', 'tv', 'gaming', 'wireless', 'bluetooth', 'usb', 'hdmi', 'iphone', 'samsung', 'apple', 'google', 'sony', 'lg', 'hp', 'dell', 'buy', 'purchase', 'price', 'chocolate', 'food']):
             return 'product_search'
         elif any(word in query_lower for word in ['docs', 'documentation', 'api']):
             return 'documentation'
@@ -101,6 +101,110 @@ class EnhancedWebSearchAutomation:
             return 'download'
         else:
             return 'general'
+    
+    def _extract_product_terms_smart(self, query: str) -> str:
+        """Universal smart extraction of product terms preserving ALL important descriptors."""
+        query_lower = query.lower().strip()
+        original_query = query_lower  # Keep original for comparison
+        
+        # Step 1: Remove only leading action/intent words (be very conservative)
+        leading_removal_patterns = [
+            r'^(?:find me?\s+)',
+            r'^(?:search for\s+)',
+            r'^(?:i need\s+)',
+            r'^(?:get me\s+)',
+            r'^(?:looking for\s+)',
+            r'^(?:want to buy\s+)',
+            r'^(?:buy me?\s+)',
+            r'^(?:purchase\s+)',
+            r'^(?:show me\s+)',
+            r'^(?:i want\s+)',
+            r'^(?:get\s+)',
+            r'^(?:need\s+)',
+        ]
+        
+        for pattern in leading_removal_patterns:
+            query_lower = re.sub(pattern, '', query_lower, flags=re.IGNORECASE)
+        
+        # Step 2: Clean up extra spaces
+        query_lower = re.sub(r'\s+', ' ', query_lower).strip()
+        
+        # Step 3: Universal approach - preserve ALL descriptive content
+        # Only remove truly generic qualifiers that add no value
+        
+        # Split into words for analysis
+        words = query_lower.split()
+        if not words:
+            return original_query
+        
+        # Define words that are purely generic and can be safely removed
+        # (Be very conservative - only remove words that truly add no search value)
+        purely_generic_words = {
+            'some', 'any', 'good', 'nice', 'decent', 'quality', 
+            'product', 'item', 'thing', 'stuff', 'one'
+        }
+        
+        # Define words that seem generic but are actually valuable for search
+        # (These should NOT be removed as they often indicate quality/type)
+        valuable_descriptors = {
+            'best', 'top', 'premium', 'luxury', 'professional', 'commercial',
+            'heavy', 'light', 'lightweight', 'durable', 'strong', 'soft', 'hard',
+            'large', 'small', 'mini', 'compact', 'portable', 'wireless', 'wired',
+            'fast', 'quick', 'slow', 'automatic', 'manual', 'digital', 'analog',
+            'waterproof', 'water', 'resistant', 'proof', 'safe', 'secure',
+            'cheap', 'expensive', 'affordable', 'budget', 'high', 'low',
+            'new', 'latest', 'newest', 'modern', 'vintage', 'retro', 'classic',
+            'smart', 'intelligent', 'basic', 'advanced', 'pro', 'standard'
+        }
+        
+        # Step 4: Material/brand/specific descriptors (never remove these)
+        material_brand_patterns = [
+            r'\b(?:carbon|bamboo|wood|wooden|steel|stainless|aluminum|plastic|glass|ceramic|leather|fabric|cotton|silk|wool|metal|titanium|gold|silver|copper|bronze)\b',
+            r'\b(?:apple|samsung|google|sony|lg|hp|dell|lenovo|asus|microsoft|adobe|nike|adidas|amazon|walmart|target)\b',
+            r'\b(?:iphone|android|windows|mac|ios|linux|xbox|playstation|nintendo)\b',
+            r'\b\d+(?:gb|tb|mb|kg|lb|oz|inch|ft|cm|mm|w|watt|amp|volt|hz|ghz|mhz)\b',
+            r'\b(?:usb|hdmi|bluetooth|wifi|wireless|wired|magsafe|lightning|type-c|micro)\b'
+        ]
+        
+        contains_specific_descriptors = any(
+            re.search(pattern, query_lower, re.IGNORECASE) 
+            for pattern in material_brand_patterns
+        )
+        
+        # Step 5: Conservative filtering approach
+        filtered_words = []
+        for i, word in enumerate(words):
+            # Always keep if:
+            # - Contains numbers/measurements
+            # - Is a valuable descriptor  
+            # - Matches material/brand patterns
+            # - Is not in the purely generic list
+            # - Is the last word (often the product type)
+            
+            keep_word = (
+                re.search(r'\d', word) or  # Contains numbers
+                word in valuable_descriptors or
+                any(re.search(pattern, word, re.IGNORECASE) for pattern in material_brand_patterns) or
+                word not in purely_generic_words or
+                i == len(words) - 1  # Last word (product type)
+            )
+            
+            if keep_word:
+                filtered_words.append(word)
+        
+        result = ' '.join(filtered_words) if filtered_words else query_lower
+        
+        # Step 6: Safety check - if we removed too much, use the original
+        # (Preserve at least 60% of meaningful content)
+        original_meaningful_words = [w for w in original_query.split() if len(w) > 2]
+        result_words = result.split()
+        
+        if len(result_words) < len(original_meaningful_words) * 0.6:
+            logger.info(f"Preserving original query - too much content would be removed")
+            result = query_lower  # Use the version with just action words removed
+        
+        logger.info(f"Query extraction: '{original_query}' -> '{result}'")
+        return result
     
     def _get_search_results(self, query: str, query_type: str) -> List[Dict[str, Any]]:
         """Get search results based on query type with robust fallbacks."""
@@ -158,42 +262,44 @@ class EnhancedWebSearchAutomation:
             return []
     
     def _handle_product_search(self, query: str) -> Dict[str, Any]:
-        """Handle product searches with ultra-specific Amazon focus."""
+        """Handle product searches with better term extraction and relevance matching."""
         try:
-            # Extract product terms from query
-            product_terms = query.lower()
-            for word in ['find me', 'best', 'top', 'good', 'find', 'search for']:
-                product_terms = product_terms.replace(word, '')
-            product_terms = product_terms.strip()
+            # Use smart extraction to preserve important descriptors
+            product_terms = self._extract_product_terms_smart(query)
+            logger.info(f"Extracted product terms: '{product_terms}' from query: '{query}'")
             
-            # First try to find specific highly-rated products
+            # First try to find specific highly-rated products with exact terms
             specific_results = self._find_specific_products(product_terms)
             
             if specific_results:
-                # Open the most specific/highest-rated result
-                best_result = specific_results[0]
-                logger.info(f"Opening specific product: {best_result['title']}")
-                logger.info(f"Rating: {best_result.get('rating', 'N/A')} | Price: {best_result.get('price', 'N/A')}")
+                # Score results based on relevance to original query
+                scored_results = self._score_product_relevance(specific_results, product_terms, query)
                 
-                try:
-                    webbrowser.open(best_result['url'])
-                    return {
-                        'success': True,
-                        'query': query,
-                        'query_type': 'product_search',
-                        'opened_url': best_result['url'],
-                        'title': best_result['title'],
-                        'rating': best_result.get('rating', 'N/A'),
-                        'price': best_result.get('price', 'N/A'),
-                        'message': f"Opened specific product: {best_result['title']}"
-                    }
-                except Exception as e:
-                    logger.warning(f"Error opening specific product: {e}")
+                if scored_results:
+                    best_result = scored_results[0]
+                    logger.info(f"Opening most relevant product: {best_result['title']}")
+                    logger.info(f"Relevance score: {best_result.get('relevance_score', 'N/A')} | Rating: {best_result.get('rating', 'N/A')} | Price: {best_result.get('price', 'N/A')}")
+                    
+                    try:
+                        webbrowser.open(best_result['url'])
+                        return {
+                            'success': True,
+                            'query': query,
+                            'query_type': 'product_search',
+                            'opened_url': best_result['url'],
+                            'title': best_result['title'],
+                            'rating': best_result.get('rating', 'N/A'),
+                            'price': best_result.get('price', 'N/A'),
+                            'relevance_score': best_result.get('relevance_score', 'N/A'),
+                            'message': f"Opened relevant product: {best_result['title']}"
+                        }
+                    except Exception as e:
+                        logger.warning(f"Error opening specific product: {e}")
             
-            # Fallback to enhanced Amazon search with filters
+            # Fallback to enhanced Amazon search with better query preservation
             amazon_url = f"https://www.amazon.com/s?k={urllib.parse.quote_plus(product_terms)}&s=review-rank&ref=sr_st_review-rank"
             
-            # Try to get the first product result from Amazon
+            # Try to get the first relevant product result from Amazon
             try:
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -206,52 +312,140 @@ class EnhancedWebSearchAutomation:
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.content, 'html.parser')
                     
-                    # Look for the first product link
-                    product_links = soup.find_all('a', {'class': lambda x: x and 'a-link-normal' in x})
-                    for link in product_links:
-                        href = link.get('href')
-                        if href and '/dp/' in href:
-                            full_url = f"https://www.amazon.com{href}" if href.startswith('/') else href
-                            title = link.find('span', {'class': lambda x: x and 'a-size-medium' in x})
-                            if title:
-                                webbrowser.open(full_url)
-                                return {
-                                    'success': True,
-                                    'query': query,
-                                    'query_type': 'product_search',
-                                    'opened_url': full_url,
-                                    'title': title.get_text(strip=True),
-                                    'message': f"Opened specific Amazon product: {title.get_text(strip=True)}"
-                                }
-                            break
+                    # Look for product results and check relevance
+                    product_containers = soup.find_all('div', {'data-component-type': 's-search-result'})
+                    
+                    for container in product_containers[:5]:  # Check first 5 results
+                        try:
+                            # Extract title
+                            title_elem = container.find('h2')
+                            if title_elem:
+                                title_link = title_elem.find('a')
+                                if title_link:
+                                    title = title_link.get_text(strip=True)
+                                    href = title_link.get('href')
+                                    
+                                    # Check if this product matches our query terms
+                                    relevance = self._calculate_text_relevance(title, product_terms)
+                                    
+                                    if relevance > 0.3:  # Minimum relevance threshold
+                                        full_url = f"https://www.amazon.com{href}" if href.startswith('/') else href
+                                        webbrowser.open(full_url)
+                                        return {
+                                            'success': True,
+                                            'query': query,
+                                            'query_type': 'product_search',
+                                            'opened_url': full_url,
+                                            'title': title,
+                                            'relevance_score': f"{relevance:.2f}",
+                                            'message': f"Opened relevant Amazon product: {title}"
+                                        }
+                        except Exception as e:
+                            logger.warning(f"Error parsing Amazon product: {e}")
+                            continue
             except Exception as e:
                 logger.warning(f"Could not parse Amazon results: {e}")
             
-            # Fallback to Amazon search page (sorted by rating)
+            # Final fallback to Amazon search page with exact terms
             webbrowser.open(amazon_url)
             return {
                 'success': True,
                 'query': query,
                 'query_type': 'product_search',
                 'opened_url': amazon_url,
-                'title': f"Amazon Search: {product_terms} (sorted by rating)",
-                'message': f"Opened Amazon search for: {product_terms} (sorted by rating)"
+                'title': f"Amazon Search: {product_terms}",
+                'message': f"Opened Amazon search for: {product_terms}"
             }
             
         except Exception as e:
             logger.error(f"Error in product search: {e}")
             return {'success': False, 'error': str(e)}
     
+    def _score_product_relevance(self, products: List[Dict[str, Any]], product_terms: str, original_query: str) -> List[Dict[str, Any]]:
+        """Score products based on relevance to the search terms."""
+        scored_products = []
+        
+        for product in products:
+            title = product.get('title', '').lower()
+            snippet = product.get('snippet', '').lower()
+            
+            # Calculate relevance scores
+            title_relevance = self._calculate_text_relevance(title, product_terms)
+            snippet_relevance = self._calculate_text_relevance(snippet, product_terms)
+            
+            # Combined relevance score (title weighted more heavily)
+            relevance_score = (title_relevance * 0.7) + (snippet_relevance * 0.3)
+            
+            # Boost score for exact matches of key terms
+            key_terms = product_terms.split()
+            for term in key_terms:
+                if len(term) > 3 and term in title:
+                    relevance_score += 0.2
+            
+            # Only include products with reasonable relevance
+            if relevance_score > 0.2:
+                product['relevance_score'] = relevance_score
+                scored_products.append(product)
+        
+        # Sort by relevance score (with rating as tiebreaker)
+        scored_products.sort(key=lambda x: (
+            x['relevance_score'],
+            float(x['rating']) if x['rating'] != 'N/A' else 0
+        ), reverse=True)
+        
+        return scored_products
+    
+    def _calculate_text_relevance(self, text: str, query_terms: str) -> float:
+        """Calculate how relevant a text is to the query terms."""
+        if not text or not query_terms:
+            return 0.0
+        
+        text_lower = text.lower()
+        query_lower = query_terms.lower()
+        
+        # Exact match gets highest score
+        if query_lower in text_lower:
+            return 1.0
+        
+        # Calculate word overlap
+        text_words = set(text_lower.split())
+        query_words = set(query_lower.split())
+        
+        # Remove common stop words for better matching
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'for', 'with', 'to', 'of', 'in', 'on', 'at'}
+        text_words -= stop_words
+        query_words -= stop_words
+        
+        if not query_words:
+            return 0.0
+        
+        # Calculate Jaccard similarity
+        intersection = text_words & query_words
+        union = text_words | query_words
+        
+        if not union:
+            return 0.0
+        
+        jaccard_score = len(intersection) / len(union)
+        
+        # Boost score for longer matching terms
+        long_term_bonus = 0
+        for term in query_words:
+            if len(term) > 4 and term in text_lower:
+                long_term_bonus += 0.1
+        
+        return min(1.0, jaccard_score + long_term_bonus)
+    
     def _find_specific_products(self, query: str) -> List[Dict[str, Any]]:
         """Find specific product pages with ratings and prices using direct Amazon scraping."""
         try:
-            # Try direct Amazon search first
+            # Try direct Amazon search first with exact terms
             amazon_products = self._scrape_amazon_products(query)
             if amazon_products:
                 return amazon_products
             
             # Fallback to Google search if Amazon scraping fails
-            search_query = f"{query} site:amazon.com OR site:bestbuy.com OR site:target.com"
+            search_query = f'"{query}" site:amazon.com OR site:bestbuy.com OR site:target.com'
             results = self._search_google_scrape(search_query)
             
             specific_products = []
@@ -267,8 +461,6 @@ class EnhancedWebSearchAutomation:
                     }
                     specific_products.append(product_info)
             
-            # Sort by rating (highest first)
-            specific_products.sort(key=lambda x: float(x['rating']) if x['rating'] and x['rating'] != 'N/A' else 0, reverse=True)
             return specific_products
             
         except Exception as e:
@@ -316,7 +508,7 @@ class EnhancedWebSearchAutomation:
             from bs4 import BeautifulSoup
             import time
             
-            # Amazon search URL with rating sort
+            # Amazon search URL with rating sort - use exact query
             search_url = f"https://www.amazon.com/s?k={urllib.parse.quote_plus(query)}&s=review-rank&ref=sr_st_review-rank"
             
             headers = {
@@ -328,7 +520,7 @@ class EnhancedWebSearchAutomation:
                 'Upgrade-Insecure-Requests': '1',
             }
             
-            logger.info(f"Scraping Amazon for: {query}")
+            logger.info(f"Scraping Amazon for exact terms: {query}")
             response = requests.get(search_url, headers=headers, timeout=10)
             
             if response.status_code == 200:
@@ -338,7 +530,7 @@ class EnhancedWebSearchAutomation:
                 # Find product containers
                 product_containers = soup.find_all('div', {'data-component-type': 's-search-result'})
                 
-                for container in product_containers[:5]:  # Get top 5 products
+                for container in product_containers[:10]:  # Get top 10 products for better relevance checking
                     try:
                          # Extract title - try multiple selectors
                          title = 'Unknown Product'
@@ -399,11 +591,8 @@ class EnhancedWebSearchAutomation:
                         logger.warning(f"Error parsing product container: {e}")
                         continue
                 
-                # Sort by rating (highest first)
-                products.sort(key=lambda x: float(x['rating']) if x['rating'] != 'N/A' else 0, reverse=True)
-                
                 if products:
-                    logger.info(f"Found {len(products)} specific products on Amazon")
+                    logger.info(f"Found {len(products)} products on Amazon for: {query}")
                     return products
                 else:
                     logger.warning("No products found in Amazon search results")
@@ -732,7 +921,7 @@ class EnhancedWebSearchAutomation:
         except Exception as e:
             logger.error(f"Error searching PyPI: {str(e)}")
         
-        return results
+        return []
 
     def _search_google_scrape(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         """Search Google using web scraping with proper headers and parsing."""

@@ -98,25 +98,48 @@ class SelfImprovementEngine:
         if cache_key in self.capability_cache:
             return self.capability_cache[cache_key]
         
+        # First, check for basic commands that should always be handled by existing AI
+        basic_commands = [
+            'open', 'launch', 'start', 'close', 'quit', 'exit',
+            'create file', 'delete file', 'edit file', 'find file', 'search file',
+            'list files', 'show files', 'display files',
+            'run command', 'execute', 'terminal', 'bash', 'shell',
+            'system info', 'system status', 'date', 'time',
+            'help', 'what can you do', 'capabilities'
+        ]
+        
+        user_lower = user_request.lower()
+        if any(cmd in user_lower for cmd in basic_commands):
+            return {
+                "can_handle": True,
+                "confidence": 0.95,
+                "missing_capability": None,
+                "required_functions": [],
+                "complexity_level": "simple",
+                "estimated_lines_of_code": 0
+            }
+        
         assessment_prompt = f"""
-Analyze this user request and determine if the current system capabilities can handle it DIRECTLY without needing to write new code:
+Analyze this user request and determine if it requires SPECIALIZED NEW CODE GENERATION:
 
 User Request: {user_request}
 Available Actions: {available_actions}
 Existing Capabilities: {list(self.capabilities_registry.keys())}
 
-IMPORTANT CRITERIA:
-- Set can_handle=false if the task requires specialized libraries, APIs, or domain-specific functionality not currently available
-- Set can_handle=false if the task needs complex algorithms, data processing, or integrations that would require significant new code
-- Set can_handle=true ONLY if the existing actions can directly accomplish the task without writing new Python modules
-- Generic "run Python code" capability does NOT count as being able to handle specialized tasks
+IMPORTANT: Only set can_handle=false for tasks that CLEARLY require:
+- Specialized libraries (ML, crypto, image processing, etc.)
+- Complex API integrations not already available
+- Domain-specific algorithms or data processing
+- Custom file format handling
+- Advanced mathematical computations
 
-Examples of tasks that should return can_handle=false:
-- Cryptocurrency portfolio tracking (needs API integrations)
-- QR code generation with custom features (needs specialized libraries)
-- Machine learning model training (needs ML libraries and expertise)
-- Complex data visualization dashboards (needs visualization libraries)
-- Web scraping with advanced features (needs scraping libraries)
+Basic tasks should return can_handle=true:
+- File operations (create, edit, delete, search)
+- Application control (open, close, switch)
+- System commands (ls, find, grep, etc.)
+- Web browsing and searching
+- Simple data manipulation
+- Basic automation tasks
 
 Respond with JSON in this format:
 {{
@@ -128,7 +151,7 @@ Respond with JSON in this format:
     "estimated_lines_of_code": number
 }}
 
-Be strict: if the task requires writing substantial new code or using specialized libraries, set can_handle=false.
+Be CONSERVATIVE: Only trigger self-improvement for truly complex, specialized tasks.
 """
         
         try:

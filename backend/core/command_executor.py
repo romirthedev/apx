@@ -55,7 +55,7 @@ class CommandExecutor:
         ]
     
     def execute_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a single action based on its type.
+        """Execute a single action.
         
         Args:
             action: Dictionary with action details
@@ -63,8 +63,18 @@ class CommandExecutor:
         Returns:
             Dictionary with execution results
         """
-        action_type = action.get('type')
+        action_type = action.get('type') or action.get('action')
         parameters = action.get('parameters', {})
+        
+        # Handle different parameter formats
+        if not parameters and action_type == 'open_app':
+            # Extract app name from 'app' field if parameters is empty
+            app_name = action.get('app') or action.get('app_name')
+            if app_name:
+                parameters = {'app_name': app_name}
+        
+        logger.info(f"DEBUG: CommandExecutor.execute called with action: {action}")
+        logger.info(f"DEBUG: action_type: '{action_type}', parameters: {parameters}")
         
         start_time = time.time()
         result = {
@@ -393,40 +403,7 @@ class CommandExecutor:
                 workspace = NSWorkspace.sharedWorkspace()
                 success = workspace.openFile_(path)
                 
-   
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             
-             if success:
+                if success:
                     result['success'] = True
                     result['output'] = f"File opened: {path}"
                 else:
@@ -435,8 +412,6 @@ class CommandExecutor:
                 # Fallback to open command
                 command = f"open '{path}'"
                 success, output, error = self._run_shell_command(command)
-             
-             
                 
                 if success:
                     result['success'] = True
@@ -562,42 +537,57 @@ class CommandExecutor:
         }
         
         app_name = params.get('app') or params.get('name', '')
+        logger.info(f"DEBUG: _handle_open_app called with params: {params}")
+        logger.info(f"DEBUG: Extracted app_name: '{app_name}'")
         
         if not app_name:
             result['error'] = "No application name specified"
+            logger.info(f"DEBUG: No app name specified, returning error")
             return result
         
         try:
+            logger.info(f"DEBUG: APPKIT_AVAILABLE: {APPKIT_AVAILABLE}")
             if APPKIT_AVAILABLE:
                 workspace = NSWorkspace.sharedWorkspace()
                 apps = workspace.runningApplications()
+                logger.info(f"DEBUG: Found {len(apps)} running applications")
                 
                 # Check if app is already running
                 for running_app in apps:
                     if app_name.lower() in running_app.localizedName().lower():
+                        logger.info(f"DEBUG: App {app_name} is already running, activating it")
                         # App is already running, activate it
                         success = workspace.launchApplication_(app_name)
                         if success:
                             result['success'] = True
                             result['output'] = f"Application activated: {app_name}"
+                            logger.info(f"DEBUG: Successfully activated {app_name}")
                             return result
                 
                 # App is not running, launch it
+                logger.info(f"DEBUG: App {app_name} not running, attempting to launch")
                 success = workspace.launchApplication_(app_name)
+                logger.info(f"DEBUG: NSWorkspace.launchApplication result: {success}")
                 
                 if success:
                     result['success'] = True
                     result['output'] = f"Application launched: {app_name}"
+                    logger.info(f"DEBUG: Successfully launched {app_name} via NSWorkspace")
                 else:
                     # Try using open command as fallback
+                    logger.info(f"DEBUG: NSWorkspace failed, trying open command fallback")
                     command = f"open -a '{app_name}'"
+                    logger.info(f"DEBUG: Running command: {command}")
                     success, output, error = self._run_shell_command(command)
+                    logger.info(f"DEBUG: Shell command result - success: {success}, output: {output}, error: {error}")
                     
                     if success:
                         result['success'] = True
                         result['output'] = f"Application launched: {app_name}"
+                        logger.info(f"DEBUG: Successfully launched {app_name} via shell command")
                     else:
                         result['error'] = error or f"Failed to launch application: {app_name}"
+                        logger.info(f"DEBUG: Failed to launch {app_name} - error: {result['error']}")
             else:
                 # Fallback to open command
                 command = f"open -a '{app_name}'"

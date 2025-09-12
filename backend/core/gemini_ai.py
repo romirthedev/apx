@@ -203,7 +203,7 @@ For conversational queries, respond normally without the JSON structure.""")
             
             # Check for specific error types and provide more helpful messages
             if "429" in error_message and "quota" in error_message.lower():
-                friendly_message = "API usage quota exceeded. Please try again later or check your Gemini API key configuration."
+                friendly_message = "Sorry, the quota error has been hit :("
                 # For quota errors, try to provide a simpler version of the task planner functionality
                 if "find" in user_input.lower() and "file" in user_input.lower():
                     return {
@@ -214,6 +214,33 @@ For conversational queries, respond normally without the JSON structure.""")
                             'description': "Execute file search",
                             'parameters': {
                                 'command': f"find ~/Desktop -name '*.txt' -type f -exec ls -la {{}} \\;"
+                            },
+                            'confidence': 0.9,
+                            'source': 'fallback_pattern'
+                        }],
+                        'requires_action': True
+                    }
+                # Handle app launch requests
+                elif any(word in user_input.lower() for word in ['open', 'launch', 'start']) and any(word in user_input.lower() for word in ['app', 'application', 'calculator', 'safari', 'chrome', 'finder']):
+                    # Extract app name from user input
+                    app_name = "Calculator"  # Default
+                    if "calculator" in user_input.lower():
+                        app_name = "Calculator"
+                    elif "safari" in user_input.lower():
+                        app_name = "Safari"
+                    elif "chrome" in user_input.lower():
+                        app_name = "Google Chrome"
+                    elif "finder" in user_input.lower():
+                        app_name = "Finder"
+                    
+                    return {
+                        'success': True,
+                        'response': f"I'll open {app_name} for you.",
+                        'suggested_actions': [{
+                            'type': 'open_app',
+                            'description': f"Open {app_name} application",
+                            'parameters': {
+                                'app': app_name
                             },
                             'confidence': 0.9,
                             'source': 'fallback_pattern'

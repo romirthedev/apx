@@ -1,0 +1,92 @@
+[
+  {
+    "command": "open calculator",
+    "description": "Simple app launch",
+    "success": true,
+    "method": "ai_with_actions",
+    "model_used": "gemini-2.5-flash-lite",
+    "response": "Calculator\n\nActions performed:\n\u2705 Execute open_app: Application activated: Calculator",
+    "timestamp": "2025-09-11T21:25:53.714502"
+  },
+  {
+    "command": "list files in current directory",
+    "description": "File operations",
+    "success": true,
+    "method": "ai_with_actions",
+    "model_used": "gemini-2.5-flash-lite",
+    "response": "ls\n\nActions performed:\n\u2705 Execute run_command: action_log.json\nai-notes.txt\ncluely.log\nconfig\ncontext_test.txt\ncore\ncurrent_date.txt\ndebug_testing_framework.py\ndemo.txt\ndisk_usage_summary.txt\nend_to_en...",
+    "timestamp": "2025-09-11T21:25:56.853864"
+  },
+  {
+    "command": "create a file called test.txt with hello world",
+    "description": "File creation",
+    "success": true,
+    "method": "ai_error_response",
+    "model_used": "unknown",
+    "response": "This appears to be a conversational request. Please use the action button for commands that require system actions.",
+    "timestamp": "2025-09-11T21:25:58.767430"
+  },
+  {
+    "command": "what's the current time",
+    "description": "System info",
+    "success": true,
+    "method": "gemini_ai_chat",
+    "model_used": "unknown",
+    "response": "I am sorry, but I do not have access to real-time information, including the current time. My knowledge is based on the data I was trained on, which is not constantly updated.",
+    "timestamp": "2025-09-11T21:26:01.838427"
+  },
+  {
+    "command": "find all .py files in this directory",
+    "description": "File search",
+    "success": true,
+    "method": "ai_error_response",
+    "model_used": "unknown",
+    "response": "This appears to be a conversational request. Please use the action button for commands that require system actions.",
+    "timestamp": "2025-09-11T21:26:03.957112"
+  },
+  {
+    "command": "create a detailed system performance report",
+    "description": "Complex task",
+    "success": true,
+    "method": "ai_with_actions",
+    "model_used": "gemini-2.5-flash-lite",
+    "response": "echo 'System Performance Report' > system_report.txt\n\nActions performed:\n\u2705 Execute run_command: \n\u2705 Execute run_command: \n\u2705 Execute run_command: \n\u274c Execute run_command: \n\u2705 Execute run_command: \n\u2705 Execu...",
+    "timestamp": "2025-09-11T21:26:08.455405"
+  },
+  {
+    "command": "analyze disk usage and create summary",
+    "description": "Multi-step task",
+    "success": false,
+    "method": "exception",
+    "model_used": "none",
+    "response": "HTTPConnectionPool(host='localhost', port=8888): Read timed out. (read timeout=30)",
+    "timestamp": "2025-09-11T21:26:39.479530"
+  },
+  {
+    "command": "explain quantum physics",
+    "description": "Conversational (should be filtered)",
+    "success": false,
+    "method": "gemini_ai_chat",
+    "model_used": "unknown",
+    "response": "This appears to be a conversational request. Please use the action button for commands that require system actions.",
+    "timestamp": "2025-09-11T21:26:41.446866"
+  },
+  {
+    "command": "hello how are you",
+    "description": "Greeting (should be filtered)",
+    "success": false,
+    "method": "gemini_ai_chat",
+    "model_used": "unknown",
+    "response": "This appears to be a conversational request. Please use the action button for commands that require system actions.",
+    "timestamp": "2025-09-11T21:26:43.118770"
+  },
+  {
+    "command": "launch chrome and go to google.com",
+    "description": "Complex app + web task",
+    "success": true,
+    "method": "ai_with_actions",
+    "model_used": "gemini-2.5-flash-lite",
+    "response": "action\n\nActions performed:\n\u274c Execute open_app: Unable to find application named 'Google Chrome'\n\n\u2705 Execute navigate_url: Opened URL: https://google.com",
+    "timestamp": "2025-09-11T21:26:46.022502"
+  }
+]

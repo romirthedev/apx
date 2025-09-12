@@ -359,27 +359,30 @@ class CommandProcessor:
                     
                     if ai_response.get('success'):
                         logger.info(f"AI response structure: {ai_response}")
-                        logger.info(f"requires_action: {ai_response.get('requires_action')}, suggested_actions: {ai_response.get('suggested_actions')}")
+                        logger.info(f"requires_action: {ai_response.get('requires_action')}, suggested_actions: {ai_response.get('suggested_actions')}, actions: {ai_response.get('actions')}")
                         # If AI suggests specific actions, try to execute them
-                        if ai_response.get('requires_action') and ai_response.get('suggested_actions'):
+                        actions_to_execute = ai_response.get('suggested_actions') or ai_response.get('actions')
+                        if ai_response.get('requires_action') and actions_to_execute:
                             action_results = []
-                             logger.info(f"Found {len(ai_response['suggested_actions'])} actions to execute")
-                             for action in ai_response['suggested_actions']:
-                                 logger.info(f"Executing action: {action}")
-                                 # Use command executor to execute the action
-                                 try:
-                                     from core.command_executor import CommandExecutor
-                                     executor = CommandExecutor(sandbox_mode=False)
-                                     execution_result = executor.execute_action(action)
-                                     logger.info(f"Action execution result: {execution_result}")
-                                     
-                                     if execution_result.get('success'):
-                                         action_results.append(f"✅ {action.get('description', action.get('type', 'Action'))}: {execution_result.get('output', 'Completed successfully')}")
-                                     else:
-                                         action_results.append(f"❌ {action.get('description', action.get('type', 'Action'))}: {execution_result.get('error', 'Failed')}")
-                                 except Exception as e:
-                                     logger.error(f"Failed to execute action {action}: {str(e)}")
-                                     action_results.append(f"❌ {action.get('description', action.get('type', 'Action'))}: Error - {str(e)}")
+                            logger.info(f"Found {len(actions_to_execute)} actions to execute")
+                            for action in actions_to_execute:
+                                logger.info(f"Executing action: {action}")
+                                # Use command executor to execute the action
+                                try:
+                                    from core.command_executor import CommandExecutor
+                                    executor = CommandExecutor(sandbox_mode=False)
+                                    logger.info(f"DEBUG: About to execute action: {action}")
+                                    execution_result = executor.execute_action(action)
+                                    logger.info(f"DEBUG: Action execution result: {execution_result}")
+                                    logger.info(f"Action execution result: {execution_result}")
+                                    
+                                    if execution_result.get('success'):
+                                        action_results.append(f"✅ {action.get('description', action.get('type', 'Action'))}: {execution_result.get('output', 'Completed successfully')}")
+                                    else:
+                                        action_results.append(f"❌ {action.get('description', action.get('type', 'Action'))}: {execution_result.get('error', 'Failed')}")
+                                except Exception as e:
+                                    logger.error(f"Failed to execute action {action}: {str(e)}")
+                                    action_results.append(f"❌ {action.get('description', action.get('type', 'Action'))}: Error - {str(e)}")
                             
                             if action_results:
                                 # Extract just the response text from AI response (remove JSON if present)
@@ -417,6 +420,14 @@ class CommandProcessor:
                             'success': True,
                             'result': response_text,
                             'metadata': {'method': 'ai_response'}
+                        }
+                    else:
+                        # AI processing failed (e.g., quota error), return the error message
+                        error_message = ai_response.get('response', 'AI processing failed')
+                        return {
+                            'success': True,
+                            'result': error_message,
+                            'metadata': {'method': 'ai_error_response'}
                         }
                 except Exception as e:
                     logger.error(f"AI processing failed: {str(e)}")
