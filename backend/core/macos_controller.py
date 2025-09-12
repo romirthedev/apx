@@ -257,41 +257,78 @@ class MacOSSystemController:
         except Exception as e:
             return f"❌ Screenshot failed: {str(e)}"
     
-    def read_screen_text(self, region: Tuple[int, int, int, int] = None) -> str:
-        """Read text from screen using OCR (requires additional setup)."""
+    def read_screen_text(self, region: Tuple[int, int, int, int] = None, timeout: int = 25) -> str:
+        """Read text from screen using OCR with proper timeout handling."""
+        import threading
+        import tempfile
+        
         try:
-            # Define the path for the temporary screenshot
-            temp_screenshot_path = os.path.expanduser("~/Desktop/temp_ocr.png")
+            # Use temp directory instead of Desktop
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                temp_screenshot_path = temp_file.name
             
-            # Take screenshot first
-            screenshot_result = self.take_screenshot("temp_ocr.png", region)
+            # Take screenshot with timeout
+            screenshot_result = self.take_screenshot(os.path.basename(temp_screenshot_path), region)
             
             if "failed" in screenshot_result.lower():
                 return screenshot_result
             
-            # Perform OCR using Tesseract
-            try:
-                # Open the image file
-                img = Image.open(temp_screenshot_path)
-                
-                # Use Tesseract to do OCR on the image
-                text = pytesseract.image_to_string(img)
-                
-                if text.strip():
-                    return f"📖 Extracted text:\n{text}"
-                else:
-                    return "📖 No text found in the specified region."
-            except pytesseract.TesseractNotFoundError:
-                return "❌ Tesseract is not installed or not in your PATH. Please install it to use OCR functionality."
-            except Exception as e:
-                return f"❌ OCR processing failed: {str(e)}"
-            finally:
-                # Clean up temp file
-                if os.path.exists(temp_screenshot_path):
-                    os.remove(temp_screenshot_path)
+            # Move file to temp location
+            desktop_path = os.path.expanduser(f"~/Desktop/{os.path.basename(temp_screenshot_path)}")
+            if os.path.exists(desktop_path):
+                os.rename(desktop_path, temp_screenshot_path)
             
+            # Perform OCR with timeout
+            result = {'text': None, 'error': None, 'completed': False}
+            
+            def ocr_worker():
+                try:
+                    img = Image.open(temp_screenshot_path)
+                    
+                    # Optimize image for OCR
+                    if img.mode != 'L':
+                        img = img.convert('L')
+                    
+                    # Use optimized Tesseract config (fixed quotation issue)
+                    config = r'--oem 3 --psm 6'
+                    text = pytesseract.image_to_string(img, config=config)
+                    
+                    result['text'] = text
+                    result['completed'] = True
+                except Exception as e:
+                    result['error'] = str(e)
+                    result['completed'] = True
+            
+            # Run OCR in thread with timeout
+            thread = threading.Thread(target=ocr_worker)
+            thread.daemon = True
+            thread.start()
+            thread.join(timeout=timeout)
+            
+            if not thread.is_alive() and result['completed']:
+                if result['error']:
+                    if 'TesseractNotFoundError' in str(result['error']):
+                        return "❌ Tesseract is not installed or not in your PATH. Please install it to use OCR functionality."
+                    else:
+                        return f"❌ OCR processing failed: {result['error']}"
+                else:
+                    text = result['text']
+                    if text and text.strip():
+                        return f"📖 Extracted text:\n{text}"
+                    else:
+                        return "📖 No text found in the specified region."
+            else:
+                return f"❌ OCR timed out after {timeout} seconds. Try with a smaller region or simpler image."
+                
         except Exception as e:
             return f"❌ Screen reading failed: {str(e)}"
+        finally:
+            # Clean up temp file
+            if 'temp_screenshot_path' in locals() and os.path.exists(temp_screenshot_path):
+                try:
+                    os.remove(temp_screenshot_path)
+                except:
+                    pass
     
     def execute_shell_command(self, command: str, safe_mode: bool = True) -> str:
         """Execute shell command with safety checks."""

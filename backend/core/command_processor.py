@@ -297,9 +297,28 @@ class CommandProcessor:
                         assessment = self.self_improvement.assess_capability_gap(command, available_actions)
                         
                         # If we can't handle the task with existing capabilities, try self-improvement
-                        if not assessment.get('can_handle', True) and assessment.get('confidence', 0) > 0.6:
+                        if not assessment.get('can_handle', True) and assessment.get('confidence', 0) > 0.1:
                             logger.info(f"Attempting self-improvement for task: {command}")
-                            improvement_result = self.self_improvement.self_improve_for_task(command, available_actions)
+                            
+                            # Create a progress callback for real-time updates
+                            def progress_callback(step, message, details=None):
+                                progress_data = {
+                                    'step': step,
+                                    'message': message,
+                                    'details': details or {},
+                                    'timestamp': datetime.now().isoformat()
+                                }
+                                # Send progress update to overlay (if available)
+                                try:
+                                    # This would be handled by the main process to send to overlay
+                                    logger.info(f"Self-improvement progress: {step} - {message}")
+                                except Exception as e:
+                                    logger.warning(f"Failed to send progress update: {e}")
+                            
+                            # Use iterative self-improvement with progress tracking
+                            improvement_result = self.self_improvement.iterative_self_improve_for_task(
+                                command, available_actions, progress_callback=progress_callback
+                            )
                             
                             if improvement_result.get('success'):
                                 if improvement_result.get('used_existing_capability'):
@@ -309,16 +328,27 @@ class CommandProcessor:
                                     # Successfully generated and used new capability
                                     return {
                                         'success': True,
-                                        'result': f"✨ **Self-Improvement Success!**\n\n{improvement_result.get('message', '')}\n\n**Result:** {improvement_result.get('result', 'Task completed successfully')}",
+                                        'result': f"✨ **Dynamic Tool Generation Success!**\n\n{improvement_result.get('message', '')}\n\n**Generated Tool:** {improvement_result.get('generated_module', 'Unknown')}\n\n**Result:** {improvement_result.get('result', 'Task completed successfully')}",
                                         'metadata': {
-                                            'method': 'self_improvement',
+                                            'method': 'dynamic_tool_generation',
                                             'generated_module': improvement_result.get('generated_module'),
-                                            'assessment': improvement_result.get('assessment')
+                                            'assessment': improvement_result.get('assessment'),
+                                            'iterations': improvement_result.get('iterations', 1),
+                                            'trajectory': improvement_result.get('trajectory', [])
                                         }
                                     }
                             else:
                                 # Self-improvement failed, log it but continue with normal AI processing
-                                logger.warning(f"Self-improvement failed: {improvement_result.get('error', 'Unknown error')}")
+                                logger.warning(f"Dynamic tool generation failed: {improvement_result.get('error', 'Unknown error')}")
+                                return {
+                                    'success': False,
+                                    'result': f"❌ **Tool Generation Failed**\n\nI attempted to create a new tool for your request but encountered an issue:\n\n{improvement_result.get('error', 'Unknown error')}\n\nPlease try rephrasing your request or breaking it into smaller tasks.",
+                                    'metadata': {
+                                        'method': 'dynamic_tool_generation_failed',
+                                        'error': improvement_result.get('error'),
+                                        'assessment': improvement_result.get('assessment')
+                                    }
+                                }
                     
                     # Proceed with normal AI response generation
                     ai_response = self.gemini_ai.generate_response(
@@ -328,26 +358,64 @@ class CommandProcessor:
                     )
                     
                     if ai_response.get('success'):
+                        logger.info(f"AI response structure: {ai_response}")
+                        logger.info(f"requires_action: {ai_response.get('requires_action')}, suggested_actions: {ai_response.get('suggested_actions')}")
                         # If AI suggests specific actions, try to execute them
                         if ai_response.get('requires_action') and ai_response.get('suggested_actions'):
                             action_results = []
-                            for action in ai_response['suggested_actions']:
-                                action_result = self._execute_ai_suggested_action(action, command)
-                                if action_result:
-                                    action_results.append(action_result)
+                             logger.info(f"Found {len(ai_response['suggested_actions'])} actions to execute")
+                             for action in ai_response['suggested_actions']:
+                                 logger.info(f"Executing action: {action}")
+                                 # Use command executor to execute the action
+                                 try:
+                                     from core.command_executor import CommandExecutor
+                                     executor = CommandExecutor(sandbox_mode=False)
+                                     execution_result = executor.execute_action(action)
+                                     logger.info(f"Action execution result: {execution_result}")
+                                     
+                                     if execution_result.get('success'):
+                                         action_results.append(f"✅ {action.get('description', action.get('type', 'Action'))}: {execution_result.get('output', 'Completed successfully')}")
+                                     else:
+                                         action_results.append(f"❌ {action.get('description', action.get('type', 'Action'))}: {execution_result.get('error', 'Failed')}")
+                                 except Exception as e:
+                                     logger.error(f"Failed to execute action {action}: {str(e)}")
+                                     action_results.append(f"❌ {action.get('description', action.get('type', 'Action'))}: Error - {str(e)}")
                             
                             if action_results:
-                                combined_result = ai_response['response'] + "\n\nActions performed:\n" + "\n".join(action_results)
+                                # Extract just the response text from AI response (remove JSON if present)
+                                response_text = ai_response['response']
+                                # Try to extract just the response part if it's JSON
+                                try:
+                                    import json
+                                    import re
+                                    json_match = re.search(r'\{[^}]*"response"[^}]*:.*?"([^"]+)".*?\}', response_text, re.DOTALL)
+                                    if json_match:
+                                        response_text = json_match.group(1)
+                                except:
+                                    pass
+                                
+                                combined_result = response_text + "\n\nActions performed:\n" + "\n".join(action_results)
                                 return {
                                     'success': True,
                                     'result': combined_result,
                                     'metadata': {'method': 'ai_with_actions', 'actions': action_results}
                                 }
                         
-                        # Return AI response
+                        # Return AI response (clean up JSON if present)
+                        response_text = ai_response['response']
+                        # Try to extract just the response part if it's JSON
+                        try:
+                            import json
+                            import re
+                            json_match = re.search(r'\{[^}]*"response"[^}]*:.*?"([^"]+)".*?\}', response_text, re.DOTALL)
+                            if json_match:
+                                response_text = json_match.group(1)
+                        except:
+                            pass
+                        
                         return {
                             'success': True,
-                            'result': ai_response['response'],
+                            'result': response_text,
                             'metadata': {'method': 'ai_response'}
                         }
                 except Exception as e:

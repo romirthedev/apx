@@ -11,6 +11,8 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 import ast
 import inspect
+from .dynamic_tool_generator import DynamicToolGenerator
+from .tool_testing_framework import ToolTestingFramework
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,10 @@ class SelfImprovementEngine:
         self.enable_trajectory = enable_trajectory
         self.trajectory = []
         self.current_iteration = 0
+        
+        # Initialize dynamic tool generator and testing framework
+        self.tool_generator = DynamicToolGenerator(gemini_ai, security_manager)
+        self.testing_framework = ToolTestingFramework(security_manager)
         
         # Load existing capabilities
         self._load_existing_capabilities()
@@ -175,7 +181,37 @@ Be strict: if the task requires writing substantial new code or using specialize
         }
     
     def generate_capability_code(self, missing_capability: str, required_functions: List[str], user_request: str) -> Tuple[str, str]:
-        """Generate Python code to implement the missing capability."""
+        """Generate Python code to implement the missing capability using the dynamic tool generator."""
+        
+        try:
+            # Use the dynamic tool generator to create the capability
+            generated_code, module_name = self.tool_generator.generate_specialized_tool(
+                user_request=user_request,
+                tool_type=None  # Let it auto-detect
+            )
+            
+            # Enhance the tool with specific context if needed
+            context = {
+                'missing_capability': missing_capability,
+                'required_functions': required_functions
+            }
+            
+            enhanced_code = self.tool_generator.enhance_tool_with_context(
+                base_code=generated_code,
+                user_request=user_request,
+                context=context
+            )
+            
+            logger.info(f"Generated code for capability using dynamic tool generator: {missing_capability}")
+            return enhanced_code, module_name
+            
+        except Exception as e:
+            logger.error(f"Error generating capability code: {str(e)}")
+            # Fallback to original method if dynamic tool generator fails
+            return self._fallback_generate_capability_code(missing_capability, required_functions, user_request)
+    
+    def _fallback_generate_capability_code(self, missing_capability: str, required_functions: List[str], user_request: str) -> Tuple[str, str]:
+        """Fallback method for generating capability code when dynamic tool generator fails."""
         
         code_generation_prompt = f"""
 Generate Python code to implement the missing capability:
@@ -214,11 +250,11 @@ Provide ONLY the Python code, no explanations:
             # Generate a module name
             module_name = f"capability_{len(self.generated_modules)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             
-            logger.info(f"Generated code for capability: {missing_capability}")
+            logger.info(f"Generated code for capability using fallback method: {missing_capability}")
             return generated_code, module_name
             
         except Exception as e:
-            logger.error(f"Error generating capability code: {str(e)}")
+            logger.error(f"Error generating capability code with fallback method: {str(e)}")
             raise
     
     def validate_and_execute_code(self, code: str, module_name: str, max_retries: int = 3) -> Tuple[bool, Any, str]:
@@ -445,11 +481,15 @@ Provide ONLY the corrected Python code, no explanations:
         method = getattr(instance, method_name)
         return method(*args, **kwargs)
     
-    def iterative_self_improve_for_task(self, user_request: str, available_actions: List[str]) -> Dict[str, Any]:
-        """Trae Agent-inspired iterative self-improvement with multi-step reasoning."""
+    def iterative_self_improve_for_task(self, user_request: str, available_actions: List[str], progress_callback=None) -> Dict[str, Any]:
+        """Trae Agent-inspired iterative self-improvement with multi-step reasoning and progress callbacks."""
         print(f"🚀 Starting iterative self-improvement (max {self.max_iterations} iterations)")
         self.current_iteration = 0
         self.trajectory = []
+        
+        # Send initial progress update
+        if progress_callback:
+            progress_callback("initialization", "🔍 Analyzing your request and detecting missing capabilities...")
         
         # Record initial assessment
         self._record_trajectory_step(
@@ -464,6 +504,13 @@ Provide ONLY the corrected Python code, no explanations:
             self.current_iteration += 1
             print(f"\n🔄 Iteration {self.current_iteration}/{self.max_iterations}")
             
+            if progress_callback:
+                progress_callback(
+                    f"iteration_{self.current_iteration}", 
+                    f"🔧 Generating tool (attempt {self.current_iteration}/{self.max_iterations})...",
+                    {"iteration": self.current_iteration, "max_iterations": self.max_iterations}
+                )
+            
             # Check if we should continue
             should_continue, reason = self._should_continue_iteration(last_result)
             if not should_continue:
@@ -476,7 +523,7 @@ Provide ONLY the corrected Python code, no explanations:
             
             # Perform one iteration of self-improvement
             try:
-                result = self._single_improvement_iteration(user_request, available_actions, trajectory_analysis)
+                result = self._single_improvement_iteration(user_request, available_actions, trajectory_analysis, progress_callback)
                 last_result = result
                 
                 self._record_trajectory_step(
@@ -486,21 +533,51 @@ Provide ONLY the corrected Python code, no explanations:
                     success=result.get('success', False)
                 )
                 
-                # If successful, test the capability
+                # If successful, check if comprehensive testing was already done
                 if result.get('success') and not result.get('used_existing_capability'):
-                    test_result = self._test_generated_capability(result)
-                    if test_result.get('success'):
-                        print("✅ Generated capability tested successfully!")
-                        result['test_result'] = test_result
-                        break
+                    if progress_callback:
+                        progress_callback("testing", "✅ Tool generated successfully! Testing functionality...")
+                    
+                    # Use comprehensive test results if available, otherwise fall back to basic test
+                    if 'test_results' in result:
+                        test_result = result['test_results']
+                        if test_result.get('success'):
+                            print("✅ Generated capability tested successfully with comprehensive tests!")
+                            result['test_result'] = test_result
+                            if progress_callback:
+                                progress_callback("success", "🎉 Tool is ready and working!")
+                            break
+                        else:
+                            print(f"⚠️ Generated capability failed comprehensive testing: {test_result.get('error')}")
+                            result['success'] = False
+                            result['test_error'] = test_result.get('error')
+                            if progress_callback:
+                                progress_callback("test_failed", f"❌ Tool test failed: {test_result.get('error', 'Unknown error')[:100]}...")
                     else:
-                        print(f"⚠️ Generated capability failed testing: {test_result.get('error')}")
-                        result['success'] = False
-                        result['test_error'] = test_result.get('error')
+                        # Fall back to basic test if comprehensive tests weren't run
+                        test_result = self._test_generated_capability(result)
+                        if test_result.get('success'):
+                            print("✅ Generated capability tested successfully!")
+                            result['test_result'] = test_result
+                            if progress_callback:
+                                progress_callback("success", "🎉 Tool is ready and working!")
+                            break
+                        else:
+                            print(f"⚠️ Generated capability failed testing: {test_result.get('error')}")
+                            result['success'] = False
+                            result['test_error'] = test_result.get('error')
+                            if progress_callback:
+                                progress_callback("test_failed", f"❌ Tool test failed: {test_result.get('error', 'Unknown error')[:100]}...")
                         
             except Exception as e:
                 error_msg = f"Iteration {self.current_iteration} failed: {str(e)}"
                 print(f"❌ {error_msg}")
+                if progress_callback:
+                    progress_callback(
+                        "iteration_failed", 
+                        f"❌ Attempt {self.current_iteration} failed: {str(e)[:100]}...",
+                        {"error": str(e), "iteration": self.current_iteration}
+                    )
                 self._record_trajectory_step(
                     'iteration_error',
                     error_msg,
@@ -514,17 +591,20 @@ Provide ONLY the corrected Python code, no explanations:
             print(f"🎉 Iterative self-improvement completed successfully in {self.current_iteration} iterations!")
         else:
             print(f"⚠️ Iterative self-improvement completed with limitations after {self.current_iteration} iterations")
+            if progress_callback:
+                progress_callback("final_failure", f"❌ Failed to generate tool after {self.current_iteration} attempts")
             
         return {
             'success': last_result.get('success', False) if last_result else False,
             'iterations': self.current_iteration,
             'trajectory': self.trajectory if self.enable_trajectory else [],
             'final_result': last_result,
-            'trajectory_summary': self._summarize_trajectory()
+            'trajectory_summary': self._summarize_trajectory(),
+            'code': last_result.get('code', '')
         }
 
-    def _single_improvement_iteration(self, user_request: str, available_actions: List[str], trajectory_analysis: str) -> Dict[str, Any]:
-        """Perform a single iteration of self-improvement with trajectory-informed reasoning."""
+    def _single_improvement_iteration(self, user_request: str, available_actions: List[str], trajectory_analysis: str, progress_callback=None) -> Dict[str, Any]:
+        """Perform a single iteration of self-improvement with trajectory-informed reasoning and progress updates."""
         # Enhanced assessment with trajectory context
         assessment_prompt = f"""
         Task: {user_request}
@@ -535,6 +615,9 @@ Provide ONLY the corrected Python code, no explanations:
         Based on the trajectory analysis and previous attempts, assess if we can handle this task.
         If previous iterations failed, consider what went wrong and how to improve.
         """
+        
+        if progress_callback:
+            progress_callback("assessment", "🧠 Assessing capability gaps...")
         
         assessment = self.assess_capability_gap(user_request, available_actions)
         
@@ -548,35 +631,83 @@ Provide ONLY the corrected Python code, no explanations:
         
         # Generate code with trajectory context
         print(f"🔧 Generating capability code (iteration {self.current_iteration})...")
-        code_result = self.generate_capability_code(
-            assessment.get('missing_capability', 'Unknown capability'),
-            assessment.get('required_functions', []),
-            user_request
-        )
+        if progress_callback:
+            progress_callback("code_generation", "💻 Writing specialized code for your task...")
         
-        if not code_result.get('success'):
+        try:
+            code, module_name = self.generate_capability_code(
+                assessment.get('missing_capability', 'Unknown capability'),
+                assessment.get('required_functions', []),
+                user_request
+            )
+            
+            # Validate and execute with enhanced error handling
+            print(f"🧪 Validating and executing code (iteration {self.current_iteration})...")
+            if progress_callback:
+                progress_callback("validation", "🔍 Validating and testing generated code...")
+            
+            # First, basic validation and execution
+            success, instance, message = self.validate_and_execute_code(
+                code,
+                module_name,
+                max_retries=2
+            )
+            
+            if not success:
+                return {
+                    'success': False,
+                    'error': f"Code execution failed: {message}",
+                    'assessment': assessment,
+                    'iteration': self.current_iteration
+                }
+            
+            # Run comprehensive testing
+            print(f"🧪 Running comprehensive tests (iteration {self.current_iteration})...")
+            if progress_callback:
+                progress_callback("testing", "🔬 Running comprehensive tool tests...")
+            
+            tool_type = self.tool_generator.detect_tool_type(user_request)
+            test_results = self.testing_framework.test_generated_tool(
+                code, module_name, tool_type, user_request
+            )
+            
+            # Log detailed test results for debugging
+            if test_results.get('total_tests', 0) > 0:
+                success_rate = test_results.get('passed', 0) / test_results['total_tests']
+                logger.info(f"Test results for {module_name}: {test_results.get('passed', 0)}/{test_results['total_tests']} passed ({success_rate:.1%})")
+                if not test_results.get('success', False):
+                    failed_tests = [test for test in test_results.get('test_results', []) if not test.get('passed', False)]
+                    for test in failed_tests:
+                        logger.warning(f"Failed test '{test.get('name', 'Unknown')}': {test.get('error', 'Unknown error')}")
+            
+            if test_results['success']:
+                return {
+                    'success': True,
+                    'generated_module': module_name,
+                    'message': f'Successfully generated, validated, and tested capability: {assessment.get("missing_capability", "Unknown")}',
+                    'assessment': assessment,
+                    'iteration': self.current_iteration,
+                    'test_results': test_results,
+                    'tool_type': tool_type,
+                    'code': code
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': f"Tool testing failed: {test_results.get('error', 'Unknown testing error')}",
+                    'assessment': assessment,
+                    'iteration': self.current_iteration,
+                    'test_results': test_results,
+                    'code': code
+                }
+                
+        except Exception as e:
             return {
                 'success': False,
-                'error': f"Code generation failed: {code_result.get('error')}",
-                'assessment': assessment
+                'error': f"Code generation failed: {str(e)}",
+                'assessment': assessment,
+                'iteration': self.current_iteration
             }
-        
-        # Validate and execute with enhanced error handling
-        print(f"🧪 Validating and executing code (iteration {self.current_iteration})...")
-        execution_result = self.validate_and_execute_code(
-            code_result['code'],
-            code_result['class_name'],
-            max_retries=3  # Allow retries within each iteration
-        )
-        
-        return {
-            'success': execution_result.get('success', False),
-            'generated_module': execution_result.get('module_name'),
-            'code': code_result['code'],
-            'class_name': code_result['class_name'],
-            'execution_result': execution_result,
-            'assessment': assessment
-        }
 
     def _test_generated_capability(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Test the generated capability to ensure it works correctly."""

@@ -148,6 +148,12 @@
       transform: translateY(0);
     }
     
+    .shortcut-btn.active {
+      background: rgba(255, 193, 7, 0.3);
+      border-color: rgba(255, 193, 7, 0.5);
+      color: #FFC107;
+    }
+    
     /* Capture button */
     .capture-btn {
       background: #007acc;
@@ -523,6 +529,7 @@
         <button class="shortcut-btn" id="webSearchBtn">🔍 Web Search</button>
         <button class="shortcut-btn" id="transcriptionBtn" style="display: none;">📝 Transcription</button>
         <button class="shortcut-btn" id="meetingBtn">🎙️ Meeting Mode</button>
+        <button class="shortcut-btn" id="actionBtn">⚡ Action</button>
       </div>
     </div>
     <div id="transcriptionDisplay" class="transcription-display"></div>
@@ -566,12 +573,16 @@
 
     const captureBtn = document.getElementById('captureBtn');
     const webSearchBtn = document.getElementById('webSearchBtn');
-    
+    const transcriptionBtn = document.getElementById('transcriptionBtn');
+    const meetingBtn = document.getElementById('meetingBtn');
+    const actionBtn = document.getElementById('actionBtn');
+
     let isProcessing = false;
     let currentResponse = '';
     let typingTimeout;
     let capturedOCRText = null; // Store OCR text for ongoing Q&A
     let webSearchMode = false; // Track if next input should be a web search
+    let actionMode = false; // Track if next input should be an action
 
     // Enable/disable send button based on input
     commandInput.addEventListener('input', () => {
@@ -586,7 +597,12 @@
         setStatus('thinking');
         try {
           let response;
-          if (webSearchMode) {
+          if (actionMode) {
+            // Handle action request
+            response = await processAction(command);
+            actionMode = false; // Reset action mode
+            updateActionButton(); // Update button appearance
+          } else if (webSearchMode) {
             // Handle web search request
             response = await processWebSearch(command);
             webSearchMode = false; // Reset web search mode
@@ -629,23 +645,63 @@
       } else {
         commandInput.placeholder = 'Ask me anything...';
       }
+      actionMode = false; // Exit action mode if entering web search mode
+      updateActionButton();
     });
     
-    // Function to update Web Search button appearance
-    function updateWebSearchButton() {
-      if (webSearchMode) {
-        webSearchBtn.style.background = 'rgba(76, 175, 80, 0.3)';
-        webSearchBtn.style.borderColor = 'rgba(76, 175, 80, 0.5)';
-        webSearchBtn.style.color = '#4CAF50';
-        webSearchBtn.innerHTML = '🔍 Web Search (Active)';
+    // Action button event listener
+    actionBtn.addEventListener('click', async () => {
+      actionMode = !actionMode;
+      updateActionButton();
+      if (actionMode) {
+        commandInput.placeholder = 'Enter your action...';
+        commandInput.focus();
       } else {
-        webSearchBtn.style.background = 'rgba(255, 255, 255, 0.15)';
-        webSearchBtn.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-        webSearchBtn.style.color = '#ffffff';
-        webSearchBtn.innerHTML = '🔍 Web Search';
+        commandInput.placeholder = 'Ask me anything...';
+      }
+      webSearchMode = false; // Exit web search mode if entering action mode
+      updateWebSearchButton();
+    });
+
+    // Function to process action request
+    async function processAction(command) {
+      showResult('⚡ Processing action request...', 'thinking');
+      const response = await fetch('http://localhost:8888/command', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ command: command, is_action: true }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to process action.');
+      }
+      return response.json();
+    }
+
+    // Update action button appearance
+    function updateActionButton() {
+      if (actionMode) {
+        actionBtn.classList.add('active');
+      } else {
+        actionBtn.classList.remove('active');
       }
     }
-    
+
+    // Update web search button appearance
+    function updateWebSearchButton() {
+      if (webSearchMode) {
+        webSearchBtn.classList.add('active');
+      } else {
+        webSearchBtn.classList.remove('active');
+      }
+    }
+
+    // Initial button state
+    updateActionButton();
+    updateWebSearchButton();
+
     // Function to process web search requests
     async function processWebSearch(query) {
       try {
@@ -737,7 +793,7 @@
       
       for (const action of actions) {
         try {
-          switch (action.type) {
+          switch (action.action) { // Changed from action.type to action.action
             case 'open_app':
               showActionStatus(`🚀 Opening ${action.app}...`);
               if (action.app.toLowerCase() === 'mail') {
@@ -789,11 +845,10 @@
 
     
     // Meeting Mode variables and functionality
-    const meetingBtn = document.getElementById('meetingBtn');
+    // meetingBtn and transcriptionBtn already declared above
     const meetingIndicator = document.getElementById('meetingIndicator');
     const overlayContainer = document.querySelector('.overlay-container');
     const transcriptionDisplay = document.getElementById('transcriptionDisplay');
-    const transcriptionBtn = document.getElementById('transcriptionBtn');
     let meetingModeActive = false;
     let recognition = null;
     let isUsingGeminiModel = false; // Flag to track if we're using Gemini for transcription
@@ -1142,44 +1197,34 @@
     
     captureBtn.addEventListener('click', async () => {
       hideResult();
-      showActionStatus('📸 Capturing screen...');
+      showActionStatus('📸 Capturing screen and reading text...');
       try {
-        const result = await ipcRenderer.invoke('capture-screen');
-        if (result.success) {
-          showActionStatus('✅ Screen captured successfully!');
-          // Process the captured image with OCR
-          const ocrResult = await ipcRenderer.invoke('capture-and-ocr', result.imagePath);
+        // Use the capture-and-ocr handler directly which calls the backend
+        const ocrResult = await ipcRenderer.invoke('capture-and-ocr');
+        
+        if (ocrResult && ocrResult.success && ocrResult.text) {
+          // Store OCR text globally for ongoing Q&A
+          capturedOCRText = ocrResult.text;
+          updateOCRIndicator();
           
-          if (ocrResult && ocrResult.success && ocrResult.text) {
-            // Store OCR text globally for ongoing Q&A
-            capturedOCRText = ocrResult.text;
-            updateOCRIndicator();
-            
-            showResult(`Screen captured and processed:\n${ocrResult.text}\n\n💡 You can now ask questions about this captured content!`, 'success');
-            
-            // Automatically analyze the captured content with AI
-            setTimeout(() => {
-              showActionStatus('🧠 Analyzing captured content with AI...');
-              // Send the OCR text to AI for analysis as a conversational query
-              ipcRenderer.invoke('send-command', `What does this captured content show? Please analyze and summarize: ${ocrResult.text}`)
-                .then(response => {
-                  if (response.success) {
-                    showResult(`${response.result}\n\n💬 Ask me anything about the captured content!`, 'success', response.is_ai_response || true);
-                  } else {
-                    showResult(`AI analysis failed: ${response.error}\n\n💬 You can still ask questions about the captured content!`, 'error');
-                  }
-                })
-                .catch(error => {
-                  console.error('Error during AI analysis:', error);
-                  showResult(`Error during AI analysis: ${error.message}\n\n💬 You can still ask questions about the captured content!`, 'error');
-                });
-            }, 1000);
-          } else {
-            const errorMsg = ocrResult && ocrResult.error ? ocrResult.error : 'Unknown OCR error';
-            showResult(`Screen captured but OCR failed: ${errorMsg}`, 'error');
-          }
+          showResult(`Screen captured and processed. Summarizing content...`, 'thinking');
+          
+          // Automatically analyze the captured content with AI
+          ipcRenderer.invoke('send-command', `Summarize the following text in one or two sentences: ${ocrResult.text}`)
+            .then(response => {
+              if (response.success) {
+                showResult(`Screen captured and processed. It sees: ${response.result}\n\n💡 You can now ask questions about this captured content!`, 'success', response.is_ai_response || true);
+              } else {
+                showResult(`Screen captured and processed, but summarization failed: ${response.error}\n\n💡 You can still ask questions about this captured content!`, 'error');
+              }
+            })
+            .catch(error => {
+              console.error('Error during AI analysis:', error);
+              showResult(`Screen captured and processed, but summarization failed: ${error.message}\n\n💡 You can still ask questions about this captured content!`, 'error');
+            });
         } else {
-          showResult(`❌ Screen capture failed: ${result.error}`, 'error');
+          const errorMsg = ocrResult && ocrResult.error ? ocrResult.error : 'Unknown OCR error';
+          showResult(`Screen captured but OCR failed: ${errorMsg}`, 'error');
         }
       } catch (error) {
         console.error('Screen capture error:', error);

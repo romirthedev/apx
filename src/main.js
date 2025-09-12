@@ -261,13 +261,38 @@ function registerIpcHandlers() {
   // IPC handler for screen capture
   ipcMain.handle('capture-screen', async () => {
     try {
-      const { desktopCapturer } = require('electron');
-      const sources = await desktopCapturer.getSources({ types: ['screen'] });
-      if (sources.length > 0) {
-        return { success: true, source: sources[0].id };
-      } else {
+      const { desktopCapturer, nativeImage } = require('electron');
+      const os = require('os');
+      
+      // Get screen sources
+      const sources = await desktopCapturer.getSources({ 
+        types: ['screen'],
+        thumbnailSize: { width: 1920, height: 1080 }
+      });
+      
+      if (sources.length === 0) {
         return { success: false, error: 'No screen sources found' };
       }
+      
+      // Get the primary screen source
+      const primarySource = sources[0];
+      const image = primarySource.thumbnail;
+      
+      // Create a temporary file path
+      const timestamp = Date.now();
+      const imagePath = path.join(os.tmpdir(), `screenshot_${timestamp}.png`);
+      
+      // Save the image to file
+      const buffer = image.toPNG();
+      fs.writeFileSync(imagePath, buffer);
+      
+      console.log(`Screenshot saved to: ${imagePath}`);
+      
+      return { 
+        success: true, 
+        imagePath: imagePath,
+        source: primarySource.id 
+      };
     } catch (error) {
       console.error('Error capturing screen:', error);
       return { success: false, error: error.message };

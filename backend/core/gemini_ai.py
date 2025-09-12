@@ -69,6 +69,7 @@ Be direct, immediate, and action-oriented. Users expect you to DO things, not di
 
     def generate_response(self, user_input: str, context: List[Dict] = None, available_actions: List[str] = None, is_chat: bool = False) -> Dict[str, Any]:
         """Generate an AI response using Gemini with fallback to simple responses."""
+        logger.debug(f"GeminiAI.generate_response received - user_input: {user_input}, is_chat: {is_chat}")
         # Handle common queries without API call first
         lower_input = user_input.lower()
         
@@ -502,7 +503,7 @@ For conversational queries, respond normally without the JSON structure.""")
               'reason': str
             }
         """
-        
+        logger.debug(f"GeminiAI.classify_intent received - user_input: {user_input}")
         try:
             prompt = (
                 "You are an intent classifier. Decide if the user's message is a COMMAND that requires taking an action on the computer, "

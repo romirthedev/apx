@@ -133,6 +133,11 @@ class CluelyBackend:
                 data = request.get_json() or {}
                 command = data.get('command', '').strip()
                 context = data.get('context', [])
+                action_mode = data.get('action_mode', False)
+                
+                # Ensure context is always a list
+                if not isinstance(context, list):
+                    context = []
                 
                 if not command:
                     return jsonify({
@@ -141,15 +146,16 @@ class CluelyBackend:
                     })
                 
                 # Log the incoming command
-                logger.info(f"Processing command: {command}")
+                logger.info(f"Processing command: {command}" + (" [ACTION MODE]" if action_mode else ""))
                 
                 # Front-door: pass raw input to AI for intent classification
-                ai_first = True
+                ai_first = True and not action_mode  # Skip AI classification if action_mode is true
                 used_ai_chat = False
                 ai_metadata: Dict[str, Any] = {}
                 
                 # Front-door: pass raw input to AI for intent classification
                 # No special handling for GitHub repository searches - let the command processor handle it
+                # If action_mode is true, bypass AI classification and go directly to CommandProcessor
                 
                 if ai_first and self.gemini_ai is not None:
                     try:
