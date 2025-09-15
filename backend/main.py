@@ -11,6 +11,9 @@ from typing import Dict, List, Any, Optional
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import threading
+import requests
+from bs4 import BeautifulSoup
+import urllib.parse
 
 # Import core modules
 from core.command_processor import CommandProcessor
@@ -133,7 +136,7 @@ class CluelyBackend:
                 data = request.get_json() or {}
                 command = data.get('command', '').strip()
                 context = data.get('context', [])
-                action_mode = data.get('action_mode', False)
+                action_mode = data.get('action_mode', False) or data.get('is_action', False)
                 
                 # Ensure context is always a list
                 if not isinstance(context, list):
@@ -148,49 +151,58 @@ class CluelyBackend:
                 # Log the incoming command
                 logger.info(f"Processing command: {command}" + (" [ACTION MODE]" if action_mode else ""))
                 
-                # Front-door: pass raw input to AI for intent classification
-                ai_first = True and not action_mode  # Skip AI classification if action_mode is true
-                used_ai_chat = False
-                ai_metadata: Dict[str, Any] = {}
-                
-                # Front-door: pass raw input to AI for intent classification
-                # No special handling for GitHub repository searches - let the command processor handle it
-                # If action_mode is true, bypass AI classification and go directly to CommandProcessor
-                
-                if ai_first and self.gemini_ai is not None:
-                    try:
-                        classify = self.gemini_ai.classify_intent(command)
-                        ai_metadata = {
-                            'method': 'gemini_ai',
-                            'classifier': classify
-                        }
-                        # Treat as chat if AI says chat and is reasonably confident and no action required
-                        if classify.get('success') and classify.get('type') == 'chat' and not classify.get('requires_action', False) and classify.get('confidence', 0.0) >= 0.6:
-                            ai_resp = self.gemini_ai.generate_response(
-                                user_input=command,
-                                context=context,
-                                available_actions=self.command_processor.get_capabilities(),
-                                is_chat=True
-                            )
-                            used_ai_chat = True
-                            result = {
-                                'success': ai_resp.get('success', True),
-                                'result': ai_resp.get('response', ''),
-                                'response_type': 'chat',
-                                'metadata': {
-                                    'method': 'gemini_ai_chat',
-                                    'ai_frontdoor': ai_metadata
-                                }
+                # Check for document/spreadsheet creation in action mode FIRST
+                if action_mode and self._is_document_creation_request(command):
+                    logger.info(f"Document creation request detected in action mode for command: {command}")
+                    result = self._handle_document_creation(command)
+                    used_ai_chat = False
+                    ai_metadata: Dict[str, Any] = {}
+                    logger.info(f"Document creation result: {result}")
+                else:
+                    # Front-door: pass raw input to AI for intent classification
+                    ai_first = True and not action_mode  # Skip AI classification if action_mode is true
+                    used_ai_chat = False
+                    ai_metadata: Dict[str, Any] = {}
+                    
+                    # Front-door: pass raw input to AI for intent classification
+                    # No special handling for GitHub repository searches - let the command processor handle it
+                    # If action_mode is true, bypass AI classification and go directly to CommandProcessor
+                    
+                    if ai_first and self.gemini_ai is not None:
+                        try:
+                            classify = self.gemini_ai.classify_intent(command)
+                            ai_metadata = {
+                                'method': 'gemini_ai',
+                                'classifier': classify
                             }
-                        else:
-                            logger.info("Classifier indicates command or low confidence; delegating to CommandProcessor")
-                    except Exception as e:
-                        logger.warning(f"AI front-door classification failed: {e}")
+                            # Treat as chat if AI says chat and is reasonably confident and no action required
+                            if classify.get('success') and classify.get('type') == 'chat' and not classify.get('requires_action', False) and classify.get('confidence', 0.0) >= 0.6:
+                                ai_resp = self.gemini_ai.generate_response(
+                                    user_input=command,
+                                    context=context,
+                                    available_actions=self.command_processor.get_capabilities(),
+                                    is_chat=True
+                                )
+                                used_ai_chat = True
+                                result = {
+                                    'success': ai_resp.get('success', True),
+                                    'result': ai_resp.get('response', ''),
+                                    'response_type': 'chat',
+                                    'metadata': {
+                                        'method': 'gemini_ai_chat',
+                                        'ai_frontdoor': ai_metadata
+                                    }
+                                }
+                            else:
+                                logger.info("Classifier indicates command or low confidence; delegating to CommandProcessor")
+                        except Exception as e:
+                            logger.warning(f"AI front-door classification failed: {e}")
                 
-                # If we didn't already answer via AI chat, route to CommandProcessor
-                if not used_ai_chat:
+                # If we didn't already answer via AI chat or handle document creation, route to CommandProcessor
+                if not used_ai_chat and 'result' not in locals():
                     logger.info("Task Planner disabled: routing directly to CommandProcessor")
                     result = self.command_processor.process(command, context)
+                    
                     # Set response_type to action for command responses
                     result['response_type'] = 'action'
                     # Merge AI metadata if present
@@ -199,6 +211,9 @@ class CluelyBackend:
                         # Only annotate; do not overwrite CommandProcessor method
                         meta.setdefault('ai_frontdoor', ai_metadata)
                         result['metadata'] = meta
+                elif 'result' in locals() and not used_ai_chat:
+                    # Document creation was handled, set response_type to action
+                    result['response_type'] = 'action'
                 
                 # Log the result for debugging
                 logger.info(f"Command result: success={result.get('success')}, method={result.get('metadata', {}).get('method')}")
@@ -352,6 +367,177 @@ class CluelyBackend:
                 'capabilities': self.command_processor.get_capabilities()
             })
     
+    def _is_document_creation_request(self, command: str) -> bool:
+        """Check if the command is requesting document or spreadsheet creation."""
+        command_lower = command.lower()
+        document_keywords = [
+            'make a spreadsheet', 'create a spreadsheet', 'make spreadsheet',
+            'create spreadsheet', 'make a document', 'create a document',
+            'make document', 'create document', 'make a text document',
+            'create a text document', 'write a document', 'generate a spreadsheet',
+            'generate spreadsheet', 'make excel', 'create excel', 'make csv',
+            'create csv', 'write an essay', 'write essay', 'csv spreadsheet',
+            'financial spreadsheet', 'financial data', 'spreadsheet with',
+            'create a csv', 'make a csv', 'generate csv'
+        ]
+        return any(keyword in command_lower for keyword in document_keywords)
+    
+    def _handle_document_creation(self, command: str) -> Dict[str, Any]:
+        """Handle document/spreadsheet creation requests."""
+        try:
+            logger.info(f"Processing document creation request: {command}")
+            
+            # Use Gemini AI to generate document content
+            if not self.gemini_ai:
+                return {
+                    'success': False,
+                    'result': 'AI service is not available for document creation.',
+                    'metadata': {'error': True}
+                }
+            
+            # Create a web search function for data validation
+            def web_search_for_validation(query: str, num: int = 3) -> List[Dict[str, Any]]:
+                """Simple web search function that returns search results data."""
+                try:
+                    import requests
+                    from bs4 import BeautifulSoup
+                    import urllib.parse
+                    
+                    # Construct Google search URL
+                    search_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}&num={num}"
+                    
+                    # Headers to mimic a real browser
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    }
+                    
+                    response = requests.get(search_url, headers=headers, timeout=10)
+                    response.raise_for_status()
+                    
+                    # Parse the HTML
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    
+                    # Find search result containers
+                    search_containers = soup.find_all('div', class_='g')
+                    
+                    results = []
+                    for container in search_containers[:num]:
+                        try:
+                            # Extract title and snippet
+                            title_elem = container.find('h3')
+                            title = title_elem.get_text() if title_elem else ''
+                            
+                            # Extract snippet
+                            snippet_elem = container.find('span', class_='aCOpRe') or container.find('div', class_='VwiC3b')
+                            snippet = snippet_elem.get_text() if snippet_elem else ''
+                            
+                            if title or snippet:
+                                results.append({
+                                    'title': title,
+                                    'website_content': snippet,
+                                    'website_snippets': snippet
+                                })
+                        except Exception:
+                            continue
+                    
+                    return results
+                except Exception as e:
+                    logger.error(f"Web search error: {str(e)}")
+                    return []
+            
+            # Generate content using the new method with web search validation
+            content_result = self.gemini_ai.generate_document_content(command, web_search_func=web_search_for_validation)
+            
+            if not content_result.get('success', False):
+                return {
+                    'success': False,
+                    'result': f"Failed to generate document content: {content_result.get('error', 'Unknown error')}",
+                    'metadata': {'error': True}
+                }
+            
+            # Extract content and metadata
+            content = content_result.get('content', '')
+            doc_type = content_result.get('type', 'document')
+            title = content_result.get('title', 'Generated Document')
+            
+            # Save the document
+            file_result = self._save_document(content, doc_type, title)
+            
+            if file_result.get('success', False):
+                return {
+                    'success': True,
+                    'result': f"✅ {doc_type.title()} created successfully!\n\n📁 Saved as: {file_result['filename']}\n\n📝 Content: {file_result['summary']}",
+                    'metadata': {
+                        'method': 'document_creation',
+                        'file_path': file_result['file_path'],
+                        'doc_type': doc_type
+                    }
+                }
+            else:
+                return {
+                    'success': False,
+                    'result': f"Failed to save document: {file_result.get('error', 'Unknown error')}",
+                    'metadata': {'error': True}
+                }
+                
+        except Exception as e:
+            logger.error(f"Error in document creation: {str(e)}")
+            return {
+                'success': False,
+                'result': f'An error occurred while creating the document: {str(e)}',
+                'metadata': {'error': True}
+            }
+    
+    def _save_document(self, content: str, doc_type: str, title: str) -> Dict[str, Any]:
+        """Save the generated content to a file."""
+        try:
+            import os
+            from datetime import datetime
+            
+            # Create documents directory if it doesn't exist
+            docs_dir = os.path.expanduser("~/Documents/Cluely_Generated")
+            os.makedirs(docs_dir, exist_ok=True)
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_title = re.sub(r'[^\w\s-]', '', title).strip().replace(' ', '_')
+            
+            if doc_type == 'spreadsheet':
+                filename = f"{safe_title}_{timestamp}.csv"
+                file_path = os.path.join(docs_dir, filename)
+                
+                # Write CSV content
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                    
+            else:  # document/text
+                filename = f"{safe_title}_{timestamp}.txt"
+                file_path = os.path.join(docs_dir, filename)
+                
+                # Write text content
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+            
+            # Generate summary
+            lines = content.split('\n')
+            summary = f"Contains {len(lines)} lines of content"
+            if doc_type == 'spreadsheet':
+                summary = f"Contains {len([l for l in lines if l.strip()])} rows of data"
+            
+            return {
+                'success': True,
+                'filename': filename,
+                'file_path': file_path,
+                'summary': summary
+            }
+            
+        except Exception as e:
+            logger.error(f"Error saving document: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     def run(self, host='0.0.0.0', port=None):
         if port is None:
             port = self.config.get('server.port', 8888)

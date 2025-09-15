@@ -22,9 +22,10 @@ class GoogleSheetsManager:
         })
         self.web_search_tool = web_search_tool
         
-        # Alpha Vantage API key - in production, this should be loaded from config
-        # For demo purposes, we're using a free API key with limited requests
-        self.alpha_vantage_api_key = os.environ.get('ALPHA_VANTAGE_API_KEY', 'demo')
+        self.alpha_vantage_api_key = os.environ.get('ALPHA_VANTAGE_API_KEY')
+        if not self.alpha_vantage_api_key or self.alpha_vantage_api_key == 'demo':
+            logger.warning("ALPHA_VANTAGE_API_KEY is not set or is set to 'demo'. Using a demo key with limited functionality. Please set a valid API key for full access.")
+            self.alpha_vantage_api_key = 'demo'
         self.alpha_vantage_base_url = 'https://www.alphavantage.co/query'
     
     def create_google_sheet(self, title: str, data: Optional[Dict] = None) -> str:
@@ -90,54 +91,8 @@ class GoogleSheetsManager:
                 logger.warning(f"Alpha Vantage API failed: {str(e)}. Falling back to web scraping.")
             
             # Fallback to web scraping if API fails
-            # Search for financial data
-            search_query = f"{company} {data_type} {period}"
-            search_url = f"https://www.google.com/search?q={search_query.replace(' ', '+')}"
-            
-            response = self.session.get(search_url, timeout=10)
-            
-            # Use BeautifulSoup to parse the HTML content
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(response.text, 'html.parser')
-
-            # This is a simplified example. Real-world scraping would require
-            # more sophisticated parsing based on the target website's structure.
-            # We'll look for common financial terms as a demonstration.
-            data = {"headers": ["Metric", "Value"], "rows": []}
-            found_data = False
-
-            # Example: Try to find a table or specific divs/spans with financial data
-            # This part would be highly dependent on the website being scraped.
-            # For a generic search, we might look for common patterns.
-            keywords = ["revenue", "net income", "earnings per share", "eps"]
-            for keyword in keywords:
-                # Search for the keyword and its immediate value
-                # This is a very basic example and might not work for all sites
-                elements = soup.find_all(string=lambda text: text and keyword in text.lower())
-                for element in elements:
-                    # Try to find a number near the keyword
-                    # This is a heuristic and needs refinement for production use
-                    parent = element.find_parent()
-                    if parent:
-                        # Look for numbers in the parent's text or siblings
-                        text_around = parent.get_text(" ", strip=True)
-                        import re
-                        numbers = re.findall(r'\$?\d+\.?\d*[BM]?', text_around, re.IGNORECASE)
-                        if numbers:
-                            data["rows"].append([keyword.replace('per share', 'EPS').title(), numbers[0]])
-                            found_data = True
-                            break # Found a value for this keyword, move to next
-
-            if found_data:
-                logger.info(f"Extracted data for {company} {data_type} {period} from web search.")
-                return data
-            else:
-                logger.warning(f"No specific financial data found for {company} {data_type} {period} on the web.")
-                return {
-                    "headers": ["Data Source", "Status"],
-                    "rows": [["Web Search", "Data extraction failed or not found"]]
-                }
-            
+            return self._web_scrape_financial_data(company, data_type, period)
+        
         except Exception as e:
             logger.error(f"Failed to fetch financial data: {str(e)}")
             # Return empty data structure on error
@@ -146,6 +101,80 @@ class GoogleSheetsManager:
                 "rows": []
             }
     
+    def _web_scrape_financial_data(self, company: str, data_type: str, period: str) -> Dict:
+        """Web scrape financial data as a fallback when API fails."""
+        try:
+            search_query = f"{company} {data_type} {period} financial statement"
+            if self.web_search_tool:
+                search_results = self.web_search_tool.search(search_query, num=5)
+                # Prioritize results from reputable financial sites
+                # (e.g., investor relations, major financial news)
+                target_url = None
+                for result in search_results:
+                    url = result.get('link')
+                    if url and ("investor" in url or "finance" in url or "reports" in url):
+                        target_url = url
+                        break
+                if not target_url and search_results:
+                    target_url = search_results[0].get('link') # Fallback to first result
+            else:
+                logger.warning("Web search tool not available for web scraping fallback.")
+                return {"headers": [], "rows": []}
+
+            if not target_url:
+                logger.warning(f"No relevant web page found for {company} {data_type} {period}.")
+                return {"headers": [], "rows": []}
+
+            logger.info(f"Attempting to scrape data from: {target_url}")
+            response = self.session.get(target_url, timeout=15)
+            response.raise_for_status() # Raise an exception for HTTP errors
+
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            data = {"headers": ["Metric", "Value"], "rows": []}
+            found_data = False
+
+            # Look for tables that might contain financial data
+            tables = soup.find_all('table')
+            for table in tables:
+                # Simple heuristic: check if table contains common financial keywords
+                table_text = table.get_text().lower()
+                if any(keyword in table_text for keyword in ["revenue", "income", "balance sheet", "cash flow"]):
+                    # Attempt to parse table headers and rows
+                    headers = [th.get_text(strip=True) for th in table.find_all('th')]
+                    rows = []
+                    for tr in table.find_all('tr'):
+                        cols = [td.get_text(strip=True) for td in tr.find_all('td')]
+                        if cols:
+                            rows.append(cols)
+                    
+                    # Basic attempt to match data_type with table content
+                    if data_type in table_text:
+                        # This is still very basic and needs more advanced parsing
+                        # For now, just return the first relevant table's data
+                        data["headers"] = headers if headers else ["Column 1", "Column 2"]
+                        data["rows"] = rows
+                        found_data = True
+                        break
+            
+            if found_data:
+                logger.info(f"Successfully scraped data for {company} {data_type} {period} from {target_url}.")
+                return data
+            else:
+                logger.warning(f"No specific financial data found for {company} {data_type} {period} on {target_url}.")
+                return {
+                    "headers": ["Data Source", "Status"],
+                    "rows": [["Web Scrape", "Data extraction failed or not found"]]
+                }
+
+        except requests.exceptions.RequestException as req_err:
+            logger.error(f"Network or HTTP error during web scraping: {req_err}")
+            return {"headers": [], "rows": []}
+        except Exception as e:
+            logger.error(f"Failed during web scraping for {company} {data_type} {period}: {str(e)}")
+            return {"headers": [], "rows": []}
+
     def _fetch_data_from_alpha_vantage(self, company: str, data_type: str, period: str) -> Dict:
         """Fetch financial data from Alpha Vantage API.
         
@@ -508,8 +537,8 @@ class GoogleSheetsManager:
                 "Operating Cash Flow": operating_cf,
                 "Capital Expenditures": capex,
                 "Free Cash Flow": free_cf,
-                "Dividend Payments": dividends,
-                "Stock Repurchases": repurchases,
+                "Dividend Payout": dividends,
+                "Stock Buyback": repurchases,
                 "Net Change in Cash": net_change
             }
             

@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import re
 from typing import Dict, Any, List, Optional
 import google.generativeai as genai
 
@@ -518,6 +519,247 @@ For conversational queries, respond normally without the JSON structure.""")
                 }
             }
 
+    def generate_document_content(self, request: str, web_search_func=None) -> Dict[str, Any]:
+        """Generate structured content for document/spreadsheet creation with automatic data validation."""
+        try:
+            # Determine document type and content requirements
+            request_lower = request.lower()
+            is_spreadsheet = any(keyword in request_lower for keyword in [
+                'spreadsheet', 'excel', 'csv', 'table', 'data', 'financial', 'numbers'
+            ])
+            
+            # Check if specific data is requested (like financial info)
+            needs_specific_data = any(keyword in request_lower for keyword in [
+                'financial', 'stock', 'revenue', 'profit', 'earnings', 'market cap',
+                'tesla', 'apple', 'google', 'microsoft', 'amazon', 'meta', 'netflix',
+                'sales', 'performance', 'metrics', 'statistics', 'analysis'
+            ])
+            
+            # Extract company name for validation
+            company_name = self._extract_company_name(request_lower)
+            validation_data = None
+            
+            # If financial data is requested and web search is available, validate with real data
+            if is_spreadsheet and needs_specific_data and web_search_func and company_name:
+                validation_data = self._get_financial_validation_data(company_name, web_search_func)
+            
+            if is_spreadsheet and needs_specific_data:
+                # Enhanced financial data prompt with validation context
+                validation_context = ""
+                if validation_data:
+                    validation_context = f"""
+
+IMPORTANT: Use these VERIFIED financial data points as reference for accuracy:
+{validation_data}
+
+Ensure your generated data aligns with these real figures and follows realistic trends.
+"""
+                
+                prompt = f"""
+Create a comprehensive financial data spreadsheet for: "{request}"
+
+Generate realistic, detailed financial data in CSV format with these requirements:
+
+1. HEADERS: Include relevant financial metrics like:
+   - Year, Revenue (Billions), Net Income (Billions), Market Cap (Billions)
+   - Stock Price, Revenue Growth %, Free Cash Flow (Billions)
+   - Employees (if available)
+
+2. DATA: Provide 5-8 years of historical data with:
+   - ACCURATE financial figures based on real company data
+   - Proper number formatting (use actual numbers, not text)
+   - Realistic year-over-year progression
+   - Industry-appropriate metrics
+
+3. FORMAT: 
+   - First row must be column headers
+   - Each subsequent row represents one year of data
+   - Use commas to separate values
+   - No extra text or explanations{validation_context}
+
+Example format:
+Year,Revenue (Billions),Net Income (Billions),Stock Price,Market Cap (Billions)
+2019,24.6,2.1,418.33,75.2
+2020,31.5,5.5,705.67,133.7
+
+Generate ONLY the CSV data, nothing else.
+"""
+            elif is_spreadsheet:
+                # General spreadsheet prompt
+                prompt = f"""
+Create a well-structured data spreadsheet for: "{request}"
+
+Requirements:
+1. Clear, descriptive column headers in the first row
+2. At least 5-10 rows of relevant, realistic data
+3. Proper CSV formatting with commas separating values
+4. Data should be comprehensive and useful
+5. Include quantitative metrics where appropriate
+
+Respond ONLY with valid CSV data, no explanations or additional text.
+"""
+            else:
+                # Enhanced document/essay prompt
+                prompt = f"""
+Write a comprehensive, well-researched document for: "{request}"
+
+Structure your response with:
+
+1. INTRODUCTION (2-3 paragraphs)
+   - Clear overview of the topic
+   - Key points to be covered
+
+2. MAIN CONTENT (4-6 sections)
+   - Detailed analysis and information
+   - Supporting facts and data
+   - Multiple perspectives where relevant
+
+3. CONCLUSION (1-2 paragraphs)
+   - Summary of key findings
+   - Final thoughts or recommendations
+
+Requirements:
+- Professional, informative tone
+- Well-organized with clear section breaks
+- Factual content with specific details
+- Minimum 800-1000 words
+- Use proper paragraph structure
+
+Provide the complete document content.
+"""
+            
+            # Generate response
+            response = self.model.generate_content(prompt)
+            content = response.text.strip()
+            
+            # Clean up CSV content if it's a spreadsheet
+            if is_spreadsheet:
+                # Remove any markdown formatting or extra text
+                lines = content.split('\n')
+                csv_lines = []
+                in_csv = False
+                
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # Skip markdown code blocks
+                    if line.startswith('```'):
+                        in_csv = not in_csv
+                        continue
+                    # Skip explanatory text
+                    if not in_csv and (',' in line or line.replace(' ', '').replace(',', '').replace('.', '').isdigit()):
+                        in_csv = True
+                    if in_csv and ',' in line:
+                        csv_lines.append(line)
+                
+                if csv_lines:
+                    content = '\n'.join(csv_lines)
+            
+            # Extract and clean title from request
+            title_patterns = [
+                r'(?:make|create|write)\s+(?:a\s+)?(?:spreadsheet|document|essay)\s+(?:with|about|on|for)?\s*(.+)',
+                r'(?:spreadsheet|document)\s+(?:with|about|on|for)\s+(.+)',
+                r'(.+?)\s+(?:spreadsheet|document|essay|financial|data)'
+            ]
+            
+            title = "Generated Content"
+            for pattern in title_patterns:
+                match = re.search(pattern, request_lower)
+                if match:
+                    title = match.group(1).strip()
+                    break
+            
+            # Clean and format title
+            title = re.sub(r'\b(tesla|apple|google|microsoft|amazon|meta|netflix)\b', 
+                          lambda m: m.group(1).capitalize(), title)
+            title = title.replace('past 5 year', 'Past 5 Year')
+            title = title.replace('financial information', 'Financial Information')
+            
+            return {
+                'success': True,
+                'content': content,
+                'type': 'spreadsheet' if is_spreadsheet else 'document',
+                'title': title.title()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating document content: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def _extract_company_name(self, request_lower: str) -> Optional[str]:
+        """Extract company name from the request."""
+        # Common company names and their variations
+        companies = {
+            'tesla': ['tesla', 'tsla'],
+            'apple': ['apple', 'aapl'],
+            'google': ['google', 'alphabet', 'googl', 'goog'],
+            'microsoft': ['microsoft', 'msft'],
+            'amazon': ['amazon', 'amzn'],
+            'meta': ['meta', 'facebook', 'fb'],
+            'netflix': ['netflix', 'nflx'],
+            'nvidia': ['nvidia', 'nvda'],
+            'salesforce': ['salesforce', 'crm'],
+            'adobe': ['adobe', 'adbe'],
+            'intel': ['intel', 'intc'],
+            'cisco': ['cisco', 'csco'],
+            'oracle': ['oracle', 'orcl'],
+            'ibm': ['ibm', 'international business machines'],
+            'paypal': ['paypal', 'pypl'],
+            'zoom': ['zoom', 'zm'],
+            'spotify': ['spotify', 'spot'],
+            'uber': ['uber'],
+            'airbnb': ['airbnb', 'abnb'],
+            'twitter': ['twitter', 'twtr'],
+            'snapchat': ['snapchat', 'snap'],
+            'pinterest': ['pinterest', 'pins']
+        }
+        
+        for company, variations in companies.items():
+            for variation in variations:
+                if variation in request_lower:
+                    return company
+        return None
+    
+    def _get_financial_validation_data(self, company_name: str, web_search_func) -> Optional[str]:
+        """Get real financial data for validation using web search."""
+        try:
+            # Search for recent financial data
+            search_query = f"{company_name} financial data revenue net income market cap stock price 2020-2024"
+            search_results = web_search_func(search_query, num=3)
+            
+            if not search_results:
+                return None
+            
+            # Extract key financial metrics from search results
+            validation_info = []
+            for result in search_results:
+                content = result.get('website_content', '') + ' ' + result.get('website_snippets', '')
+                
+                # Look for revenue figures
+                revenue_matches = re.findall(r'revenue.*?\$([0-9.,]+)\s*[bB]illion', content, re.IGNORECASE)
+                if revenue_matches:
+                    validation_info.append(f"Recent Revenue: ${revenue_matches[0]} Billion")
+                
+                # Look for market cap
+                market_cap_matches = re.findall(r'market cap.*?\$([0-9.,]+)\s*[tTbB]rillion', content, re.IGNORECASE)
+                if market_cap_matches:
+                    validation_info.append(f"Market Cap: ${market_cap_matches[0]} Trillion")
+                
+                # Look for stock price
+                stock_matches = re.findall(r'stock price.*?\$([0-9.,]+)', content, re.IGNORECASE)
+                if stock_matches:
+                    validation_info.append(f"Stock Price: ${stock_matches[0]}")
+            
+            return '\n'.join(validation_info) if validation_info else None
+            
+        except Exception as e:
+            logger.error(f"Error getting validation data: {str(e)}")
+            return None
+    
     def classify_intent(self, user_input: str) -> Dict[str, Any]:
         """Classify raw user input as 'command' (requires action) or 'chat' (no action).
 
