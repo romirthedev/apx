@@ -1,4 +1,0 @@
-quart
-quart-cors
-requests
-python-dotenv

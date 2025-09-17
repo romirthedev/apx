@@ -13,7 +13,7 @@ from plugins.system_info import SystemInfo
 from plugins.document_manager import DocumentManager
 from plugins.email_manager import EmailManager
 from plugins.automation_manager import AutomationManager
-from plugins.google_sheets_manager import GoogleSheetsManager
+# Google Sheets Manager removed - functionality moved to gemini_ai.py
 from core.nlp_processor import NLPProcessor
 from core.gemini_ai import GeminiAI
 from core.macos_permissions import MacOSPermissionsManager
@@ -61,7 +61,7 @@ class CommandProcessor:
             'web_controller': WebController(),
             'script_runner': ScriptRunner(),
             'system_info': SystemInfo(),
-            'google_sheets_manager': GoogleSheetsManager(),
+            # 'google_sheets_manager': GoogleSheetsManager(), # Removed - using gemini_ai.py instead
             'document_manager': DocumentManager(),
             'email_manager': EmailManager(),
             'automation_manager': AutomationManager()
@@ -1734,165 +1734,40 @@ Just tell me what you want to do in natural language!"""
     
     # Google Sheets handlers
     def _handle_create_google_sheet(self, sheet_name: str, context: List[Dict] = None) -> str:
-        """Handle Google Sheet creation."""
-        return self.plugins['google_sheets_manager'].create_google_sheet(sheet_name)
+        """Handle spreadsheet creation using Gemini AI."""
+        # Route to Gemini AI for CSV creation
+        prompt = f"Create a spreadsheet about {sheet_name}"
+        return self.gemini_ai.generate_document_content(prompt, "csv")
     
-    def _extract_stock_data_params(self, query: str) -> Dict[str, Any]:
-        """Extract stock data parameters from a query."""
-        # Extract company name from the query
-        company_pattern = r'(microsoft|apple|google|alphabet|amazon|meta|facebook|tesla|netflix|nvidia|amd|intel)'
-        company_match = re.search(company_pattern, query.lower())
-        
-        # Extract data type from the query
-        data_type_pattern = r'(earnings|revenue|profit|sales|growth|financial|income|balance sheet|stock)'
-        data_type_match = re.search(data_type_pattern, query.lower())
-        
-        # Set defaults if not found
-        company = company_match.group(1) if company_match else "company"
-        data_type = data_type_match.group(1) if data_type_match else "stock"
-        
-        # If no specific company was found, try to extract any company name
-        if company == "company":
-            # Look for any capitalized words that might be company names
-            words = query.split()
-            for word in words:
-                if word[0].isupper() and len(word) > 1 and word.lower() not in ["google", "create", "make", "new", "spreadsheet", "sheet", "about", "for", "on"]:
-                    company = word
-                    break
-        
-        # Check for period keywords
-        period = "daily"  # Default for stock data
-        period_keywords = {
-            "annual": ["annual", "yearly", "year"],
-            "quarterly": ["quarterly", "quarter", "q1", "q2", "q3", "q4"],
-            "monthly": ["monthly", "month"],
-            "weekly": ["weekly", "week"],
-            "daily": ["daily", "day"]
-        }
-        
-        for p, keywords in period_keywords.items():
-            if any(keyword in query.lower() for keyword in keywords):
-                period = p
-                break
-                
-        # Check for year range
-        years = None
-        year_patterns = [
-            r'(?:past|last)\s+(\d+)\s+years?',
-            r'(\d+)\s+years?',
-            r'from\s+(\d{4})(?:\s+to\s+(\d{4}))?'
-        ]
-        
-        for pattern in year_patterns:
-            match = re.search(pattern, query.lower())
-            if match:
-                if pattern.startswith('from'):
-                    start_year = match.group(1)
-                    end_year = match.group(2) if len(match.groups()) > 1 and match.group(2) else None
-                    years = f"{start_year}-{end_year}" if end_year else f"{start_year}-present"
-                else:
-                    num_years = match.group(1)
-                    years = f"last {num_years} years"
-                break
-        
-        return {
-            "company": company,
-            "data_type": data_type,
-            "period": period,
-            "years": years
-        }
+    # _extract_stock_data_params method removed - no longer needed with Gemini AI routing
     
     def _handle_financial_spreadsheet(self, query: str, context: List[Dict] = None) -> str:
-        """Handle financial spreadsheet creation."""
-        params = self._extract_stock_data_params(query)
-        return self.plugins['google_sheets_manager'].create_financial_spreadsheet(params["company"], params["data_type"], params["period"])
+        """Handle financial spreadsheet creation using Gemini AI."""
+        # Route directly to Gemini AI for real financial data in JSON format
+        return self.gemini_ai.generate_document_content(query, "csv")
     
     def _handle_stock_document(self, query: str, context: List[Dict] = None) -> str:
-        """Handle creating a Word document with stock data."""
-        params = self._extract_stock_data_params(query)
-        
-        # Create the document
-        from plugins.document_manager import DocumentManager
-        from plugins.google_sheets_manager import GoogleSheetsManager
-        
-        sheets_manager = GoogleSheetsManager()
-        doc_manager = DocumentManager(google_sheets_manager=sheets_manager)
-        
-        result = doc_manager.create_stock_document(
-            company=params["company"],
-            data_type=params["data_type"],
-            period=params["period"],
-            format="docx"
-        )
-        
-        return result
+        """Handle creating a Word document with stock data using Gemini AI."""
+        # Route directly to Gemini AI for real stock data
+        return self.gemini_ai.generate_document_content(query, "docx")
     
     def _handle_stock_spreadsheet(self, query: str, context: List[Dict] = None) -> str:
-        """Handle creating an Excel spreadsheet with stock data."""
-        params = self._extract_stock_data_params(query)
-        
-        # Create the spreadsheet
-        from plugins.document_manager import DocumentManager
-        from plugins.google_sheets_manager import GoogleSheetsManager
-        
-        sheets_manager = GoogleSheetsManager()
-        doc_manager = DocumentManager(google_sheets_manager=sheets_manager)
-        
-        result = doc_manager.create_stock_document(
-            company=params["company"],
-            data_type=params["data_type"],
-            period=params["period"],
-            format="xlsx"
-        )
-        
-        return result
+        """Handle creating an Excel spreadsheet with stock data using Gemini AI."""
+        # Route directly to Gemini AI for real stock data
+        return self.gemini_ai.generate_document_content(query, "xlsx")
     
     def _handle_stock_pdf(self, query: str, context: List[Dict] = None) -> str:
-        """Handle creating a PDF with stock data."""
-        params = self._extract_stock_data_params(query)
-        
-        # Create the PDF
-        from plugins.document_manager import DocumentManager
-        from plugins.google_sheets_manager import GoogleSheetsManager
-        
-        sheets_manager = GoogleSheetsManager()
-        doc_manager = DocumentManager(google_sheets_manager=sheets_manager)
-        
-        result = doc_manager.create_stock_document(
-            company=params["company"],
-            data_type=params["data_type"],
-            period=params["period"],
-            format="pdf"
-        )
-        
-        return result
+        """Handle creating a PDF with stock data using Gemini AI."""
+        # Route directly to Gemini AI for real stock data
+        return self.gemini_ai.generate_document_content(query, "pdf")
     
     # The duplicate method was removed to eliminate duplication
     
     def _handle_fill_google_sheet(self, data_description: str, context: List[Dict] = None) -> str:
-        """Handle filling Google Sheet with data."""
-        # Extract company and data type if possible
-        company_pattern = r'(microsoft|apple|google|alphabet|amazon|meta|facebook|tesla|netflix|nvidia|amd|intel)'
-        company_match = re.search(company_pattern, data_description.lower())
-        
-        # Extract data type from the query
-        data_type_pattern = r'(earnings|revenue|profit|sales|growth|financial|income|balance sheet)'
-        data_type_match = re.search(data_type_pattern, data_description.lower())
-        
-        # Set defaults if not found
-        company = company_match.group(1) if company_match else "company"
-        data_type = data_type_match.group(1) if data_type_match else "earnings"
-        
-        # If no specific company was found, try to extract any company name
-        if company == "company":
-            # Look for any capitalized words that might be company names
-            words = data_description.split()
-            for word in words:
-                if word[0].isupper() and len(word) > 1 and word.lower() not in ["google", "create", "make", "new", "spreadsheet", "sheet", "about", "for", "on"]:
-                    company = word
-                    break
-        
-        return self.plugins['google_sheets_manager'].create_financial_spreadsheet(company, data_type)
+        """Handle filling spreadsheet with data using Gemini AI."""
+        # Route directly to Gemini AI for data generation
+        prompt = f"Fill a spreadsheet with {data_description}"
+        return self.gemini_ai.generate_document_content(prompt, "csv")
     
     def _handle_operating_system(self, context: List[Dict] = None) -> str:
         """Handle operating system information requests."""

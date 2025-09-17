@@ -1,79 +1,38 @@
 {
-  "name": "cluely",
+  "name": "apx-electron-app",
   "version": "1.0.0",
-  "description": "Cross-platform AI assistant with full computer and web control",
+  "description": "APX Electron Application",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "concurrently \"npm run backend\" \"npm run electron-dev\"",
-    "backend": "cd backend && ../.venv/bin/python main.py",
-    "backend-daemon": "cd backend && ../.venv/bin/python main.py --daemon",
-    "backend-setup": "cd backend && ../.venv/bin/python -m pip install -r requirements.txt",
-    "electron-dev": "electron . --dev",
+    "dev": "electron . --dev",
     "build": "electron-builder",
-    "build-backend": "cd backend && pyinstaller --onefile main.py",
-    "package": "npm run build-backend && npm run build",
-    "test": "jest",
-    "lint": "eslint src/",
-    "setup": "npm install && npm run backend-setup",
-    "permissions-check": "cd backend && ../.venv/bin/python -c 'from core.macos_permissions import MacOSPermissionsManager; m = MacOSPermissionsManager(); print(m.check_all_permissions())'",
-    "health-check": "./scripts/health-check.py",
-    "setup-venv": "python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt",
-    "status": "cd backend && ../.venv/bin/python -c \"import requests; print('Backend status:', requests.get('http://localhost:5000/health').json()) if True else print('Backend not running')\"",
-    "test-backend": "node scripts/test-backend.js",
-    "install-daemon": "sudo cp scripts/com.cluely.daemon.plist /Library/LaunchDaemons/ && sudo launchctl load /Library/LaunchDaemons/com.cluely.daemon.plist",
-    "uninstall-daemon": "sudo launchctl unload /Library/LaunchDaemons/com.cluely.daemon.plist && sudo rm /Library/LaunchDaemons/com.cluely.daemon.plist",
-    "start-daemon": "sudo launchctl start com.cluely.daemon",
-    "stop-daemon": "sudo launchctl stop com.cluely.daemon"
+    "dist": "electron-builder --publish=never"
   },
-  "keywords": ["ai", "assistant", "automation", "desktop", "cross-platform"],
-  "author": "Your Name",
+  "keywords": [
+    "electron",
+    "apx",
+    "automation"
+  ],
+  "author": "APX Team",
   "license": "MIT",
   "devDependencies": {
-    "concurrently": "^8.2.2",
-    "electron": "^27.1.3",
-    "electron-builder": "^24.6.4",
-    "eslint": "^8.57.0",
-    "jest": "^29.7.0"
+    "electron": "^38.1.1",
+    "electron-builder": "^24.6.4"
   },
   "dependencies": {
-    "axios": "^1.6.2",
-    "electron-store": "^8.1.0",
-    "globalkey": "^1.0.1"
+    "axios": "^1.5.0",
+    "electron-store": "^8.1.0"
   },
   "build": {
-    "appId": "com.cluely.app",
-    "productName": "Cluely",
+    "appId": "com.apx.electron",
+    "productName": "APX",
     "directories": {
       "output": "dist"
     },
     "files": [
       "src/**/*",
-      "backend/dist/**/*",
       "node_modules/**/*"
-    ],
-    "mac": {
-      "target": "dmg",
-      "icon": "assets/icon.icns",
-      "entitlements": "entitlements.mac.plist",
-      "entitlementsInherit": "entitlements.mac.plist",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
-      "extendInfo": {
-        "NSAppleEventsUsageDescription": "Cluely needs AppleEvents access to control applications.",
-        "NSSystemAdministrationUsageDescription": "Cluely needs admin access for system automation.",
-        "NSAccessibilityUsageDescription": "Cluely needs accessibility access to control mouse and keyboard.",
-        "NSScreenRecordingUsageDescription": "Cluely needs screen recording access to analyze what's on screen.",
-        "NSFullDiskAccessUsageDescription": "Cluely needs full disk access to manage files and applications."
-      }
-    },
-    "win": {
-      "target": "nsis",
-      "icon": "assets/icon.ico"
-    },
-    "linux": {
-      "target": "AppImage",
-      "icon": "assets/icon.png"
-    }
+    ]
   }
 }

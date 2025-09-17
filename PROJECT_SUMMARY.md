@@ -1,8 +1,8 @@
-# 🧠 Cluely - AI Desktop Assistant
+# 🧠 Apx - AI Desktop Assistant
 
 ## Project Overview
 
-**Cluely** is a sophisticated cross-platform desktop AI assistant that provides instant access to computer and web control through natural language commands. Built with Electron for the frontend and Python Flask for the backend, it features a modular plugin architecture for extensibility.
+**Apx** is a sophisticated cross-platform desktop AI assistant that provides instant access to computer and web control through natural language commands. Built with Electron for the frontend and Python Flask for the backend, it features a modular plugin architecture for extensibility.
 
 ## 🌟 Key Features Implemented
 

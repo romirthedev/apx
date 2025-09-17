@@ -459,9 +459,19 @@ class CluelyBackend:
             content = content_result.get('content', '')
             doc_type = content_result.get('type', 'document')
             title = content_result.get('title', 'Generated Document')
+            raw_json_content = content_result.get('raw_json_content')
+            
+            # Log raw JSON content to terminal for investigation
+            if raw_json_content:
+                logger.info("=== RAW JSON CONTENT FOR INVESTIGATION ===")
+                logger.info(f"Request: {command}")
+                logger.info(f"Raw JSON Data:\n{raw_json_content}")
+                logger.info("=== END RAW JSON CONTENT ===")
+            else:
+                logger.warning(f"No raw JSON content available for request: {command}")
             
             # Save the document
-            file_result = self._save_document(content, doc_type, title)
+            file_result = self._save_document(content, doc_type, title, raw_json_content)
             
             if file_result.get('success', False):
                 return {
@@ -488,7 +498,7 @@ class CluelyBackend:
                 'metadata': {'error': True}
             }
     
-    def _save_document(self, content: str, doc_type: str, title: str) -> Dict[str, Any]:
+    def _save_document(self, content: str, doc_type: str, title: str, raw_json_content: Optional[str] = None) -> Dict[str, Any]:
         """Save the generated content to a file."""
         try:
             import os
@@ -509,6 +519,9 @@ class CluelyBackend:
                 # Write CSV content
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(content)
+                    if raw_json_content:
+                        f.write('\n\n-- RAW JSON RESPONSE FROM GEMINI --\n')
+                        f.write(raw_json_content)
                     
             else:  # document/text
                 filename = f"{safe_title}_{timestamp}.txt"

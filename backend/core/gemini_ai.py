@@ -14,7 +14,7 @@ class GeminiAI:
         genai.configure(api_key=api_key)
         
         # Initialize the model
-        self.model = genai.GenerativeModel('gemini-2.5-flash-lite')
+        self.model = genai.GenerativeModel('gemini-2.5-flash')
         
         # System prompt to make Gemini understand it's controlling a computer
         self.system_prompt = """You are Cluely, an AI assistant with FULL COMPUTER CONTROL. You have complete access to execute any command on this Mac system.
@@ -520,70 +520,97 @@ For conversational queries, respond normally without the JSON structure.""")
             }
 
     def generate_document_content(self, request: str, web_search_func=None) -> Dict[str, Any]:
-        """Generate structured content for document/spreadsheet creation with automatic data validation."""
+        """Generate structured content for document/spreadsheet creation with real financial data."""
         try:
+            logger.info(f"=== GENERATE_DOCUMENT_CONTENT CALLED === Request: {request}")
             # Determine document type and content requirements
             request_lower = request.lower()
             is_spreadsheet = any(keyword in request_lower for keyword in [
                 'spreadsheet', 'excel', 'csv', 'table', 'data', 'financial', 'numbers'
             ])
             
-            # Check if specific data is requested (like financial info)
-            needs_specific_data = any(keyword in request_lower for keyword in [
+            # Check if financial/stock data is requested
+            needs_financial_data = any(keyword in request_lower for keyword in [
                 'financial', 'stock', 'revenue', 'profit', 'earnings', 'market cap',
-                'tesla', 'apple', 'google', 'microsoft', 'amazon', 'meta', 'netflix',
                 'sales', 'performance', 'metrics', 'statistics', 'analysis'
             ])
             
-            # Extract company name for validation
-            company_name = self._extract_company_name(request_lower)
-            validation_data = None
-            
-            # If financial data is requested and web search is available, validate with real data
-            if is_spreadsheet and needs_specific_data and web_search_func and company_name:
-                validation_data = self._get_financial_validation_data(company_name, web_search_func)
-            
-            if is_spreadsheet and needs_specific_data:
-                # Enhanced financial data prompt with validation context
-                validation_context = ""
-                if validation_data:
-                    validation_context = f"""
+            if is_spreadsheet and needs_financial_data:
+                logger.info(f"Financial spreadsheet detected for request: {request}")
+                # Extract company/ticker from request
+                company_or_ticker = self._extract_company_or_ticker(request)
+                logger.info(f"Extracted company/ticker: {company_or_ticker}")
+                
+                if company_or_ticker:
+                    logger.info(f"Attempting to get real financial data for: {company_or_ticker}")
+                    # Get real financial data using Gemini API
+                    financial_data = self._get_real_financial_data(company_or_ticker, request)
+                    
+                    if financial_data:
+                        logger.info(f"Financial data retrieved successfully, converting to CSV")
+                        raw_json_content = json.dumps(financial_data, indent=2)
+                        # Convert JSON data to CSV format
+                        csv_content = self._convert_financial_json_to_csv(financial_data)
+                        if csv_content:
+                            return {
+                                'success': True,
+                                'content': csv_content,
+                                'type': 'spreadsheet',
+                                'format': 'csv',
+                                'title': f"{company_or_ticker.title()} Financial Data",
+                                'raw_json_content': raw_json_content
+                            }
+                        else:
+                            logger.error(f"Failed to convert financial data to CSV for {company_or_ticker}")
+                    else:
+                        logger.warning(f"Failed to retrieve financial data for {company_or_ticker}")
+                else:
+                    logger.warning(f"Could not extract company/ticker from request: {request}")
+                
+                # Fallback to general financial prompt if no specific company found
+                logger.warning(f"=== USING FALLBACK FINANCIAL PROMPT (WILL GENERATE FAKE DATA) ===")
+                logger.warning(f"Request: {request}")
+                logger.warning(f"This fallback generates made-up financial data, not real company data")
+                logger.warning(f"=== END FALLBACK WARNING ===")
+                prompt = f"""
+Create a well-structured financial data spreadsheet for: "{request}"
 
-IMPORTANT: Use these VERIFIED financial data points as reference for accuracy:
-{validation_data}
+Requirements:
+1. Clear, descriptive column headers in the first row
+2. At least 5-10 rows of relevant, realistic data
+3. Proper CSV formatting with commas separating values
+4. Data should be comprehensive and useful
+5. Include quantitative financial metrics where appropriate
 
-Ensure your generated data aligns with these real figures and follows realistic trends.
+Respond ONLY with valid CSV data, no explanations or additional text.
 """
                 
-                prompt = f"""
-Create a comprehensive financial data spreadsheet for: "{request}"
-
-Generate realistic, detailed financial data in CSV format with these requirements:
-
-1. HEADERS: Include relevant financial metrics like:
-   - Year, Revenue (Billions), Net Income (Billions), Market Cap (Billions)
-   - Stock Price, Revenue Growth %, Free Cash Flow (Billions)
-   - Employees (if available)
-
-2. DATA: Provide 5-8 years of historical data with:
-   - ACCURATE financial figures based on real company data
-   - Proper number formatting (use actual numbers, not text)
-   - Realistic year-over-year progression
-   - Industry-appropriate metrics
-
-3. FORMAT: 
-   - First row must be column headers
-   - Each subsequent row represents one year of data
-   - Use commas to separate values
-   - No extra text or explanations{validation_context}
-
-Example format:
-Year,Revenue (Billions),Net Income (Billions),Stock Price,Market Cap (Billions)
-2019,24.6,2.1,418.33,75.2
-2020,31.5,5.5,705.67,133.7
-
-Generate ONLY the CSV data, nothing else.
-"""
+                # Generate financial spreadsheet content
+                try:
+                    response = self.model.generate_content(prompt)
+                    content = response.text.strip() if response else ""
+                    
+                    if content:
+                        # Clean up CSV content
+                        lines = content.split('\n')
+                        csv_lines = []
+                        for line in lines:
+                            line = line.strip()
+                            if line and ',' in line and not line.startswith('```'):
+                                csv_lines.append(line)
+                        
+                        if csv_lines:
+                            content = '\n'.join(csv_lines)
+                            return {
+                                'success': True,
+                                'content': content,
+                                'type': 'spreadsheet',
+                                'format': 'csv',
+                                'title': f"Financial Data Spreadsheet"
+                            }
+                except Exception as e:
+                    logger.error(f"Error generating financial spreadsheet: {str(e)}")
+        
             elif is_spreadsheet:
                 # General spreadsheet prompt
                 prompt = f"""
@@ -690,75 +717,281 @@ Provide the complete document content.
                 'error': str(e)
             }
     
-    def _extract_company_name(self, request_lower: str) -> Optional[str]:
-        """Extract company name from the request."""
-        # Common company names and their variations
-        companies = {
-            'tesla': ['tesla', 'tsla'],
-            'apple': ['apple', 'aapl'],
-            'google': ['google', 'alphabet', 'googl', 'goog'],
-            'microsoft': ['microsoft', 'msft'],
-            'amazon': ['amazon', 'amzn'],
-            'meta': ['meta', 'facebook', 'fb'],
-            'netflix': ['netflix', 'nflx'],
-            'nvidia': ['nvidia', 'nvda'],
-            'salesforce': ['salesforce', 'crm'],
-            'adobe': ['adobe', 'adbe'],
-            'intel': ['intel', 'intc'],
-            'cisco': ['cisco', 'csco'],
-            'oracle': ['oracle', 'orcl'],
-            'ibm': ['ibm', 'international business machines'],
-            'paypal': ['paypal', 'pypl'],
-            'zoom': ['zoom', 'zm'],
-            'spotify': ['spotify', 'spot'],
-            'uber': ['uber'],
-            'airbnb': ['airbnb', 'abnb'],
-            'twitter': ['twitter', 'twtr'],
-            'snapchat': ['snapchat', 'snap'],
-            'pinterest': ['pinterest', 'pins']
-        }
-        
-        for company, variations in companies.items():
-            for variation in variations:
-                if variation in request_lower:
-                    return company
-        return None
-    
-    def _get_financial_validation_data(self, company_name: str, web_search_func) -> Optional[str]:
-        """Get real financial data for validation using web search."""
+    def _extract_company_or_ticker(self, request: str) -> Optional[str]:
+        """Extract company name or ticker symbol using AI-powered identification."""
         try:
-            # Search for recent financial data
-            search_query = f"{company_name} financial data revenue net income market cap stock price 2020-2024"
-            search_results = web_search_func(search_query, num=3)
+            prompt = f"""
+You are a financial data expert. Analyze this request and identify the company name or ticker symbol:
+
+"{request}"
+
+Rules:
+1. Look for company names, ticker symbols, or stock symbols
+2. Handle misspellings and variations (e.g., "PAGS" for PagSeguro, "GOOGL" for Google/Alphabet)
+3. Return the most commonly used ticker symbol or official company name
+4. If multiple companies mentioned, return the primary one
+5. Return null if no company is clearly identifiable
+
+Examples:
+- "PAGS financial data" → "PAGS"
+- "pagseguro finances" → "PagSeguro"
+- "apple stock data" → "Apple"
+- "AAPL spreadsheet" → "AAPL"
+- "mongoDB revenue" → "MongoDB"
+- "tesla earnings" → "Tesla"
+- "general financial data" → null
+
+Return ONLY the company name or ticker symbol, nothing else. If no company found, return "null".
+"""
             
-            if not search_results:
-                return None
-            
-            # Extract key financial metrics from search results
-            validation_info = []
-            for result in search_results:
-                content = result.get('website_content', '') + ' ' + result.get('website_snippets', '')
-                
-                # Look for revenue figures
-                revenue_matches = re.findall(r'revenue.*?\$([0-9.,]+)\s*[bB]illion', content, re.IGNORECASE)
-                if revenue_matches:
-                    validation_info.append(f"Recent Revenue: ${revenue_matches[0]} Billion")
-                
-                # Look for market cap
-                market_cap_matches = re.findall(r'market cap.*?\$([0-9.,]+)\s*[tTbB]rillion', content, re.IGNORECASE)
-                if market_cap_matches:
-                    validation_info.append(f"Market Cap: ${market_cap_matches[0]} Trillion")
-                
-                # Look for stock price
-                stock_matches = re.findall(r'stock price.*?\$([0-9.,]+)', content, re.IGNORECASE)
-                if stock_matches:
-                    validation_info.append(f"Stock Price: ${stock_matches[0]}")
-            
-            return '\n'.join(validation_info) if validation_info else None
+            response = self.model.generate_content(prompt)
+            if response and response.text:
+                result = response.text.strip().strip('"').strip("'")
+                if result.lower() == 'null' or not result:
+                    logger.info(f"AI could not identify company from request: {request}")
+                    return None
+                logger.info(f"AI identified company/ticker: {result} from request: {request}")
+                return result
             
         except Exception as e:
-            logger.error(f"Error getting validation data: {str(e)}")
+            logger.warning(f"AI company extraction failed: {e}, falling back to regex")
+            
+        # Fallback to original regex method if AI fails
+        import re
+        
+        # Look for ticker symbols (2-5 uppercase letters)
+        ticker_pattern = r'\b([A-Z]{2,5})\b'
+        ticker_matches = re.findall(ticker_pattern, request)
+        
+        # Look for company names (capitalized words, including mixed case like MongoDB, PayPal)
+        company_pattern = r'\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)\b'
+        company_matches = re.findall(company_pattern, request)
+        
+        # Also look for specific well-known company patterns
+        known_companies = ['MongoDB', 'PayPal', 'GitHub', 'LinkedIn', 'YouTube', 'iPhone', 'iPad', 'MacBook']
+        for company in known_companies:
+            if company.lower() in request.lower():
+                company_matches.append(company)
+        
+        # Prioritize ticker symbols as they're more specific
+        if ticker_matches:
+            return ticker_matches[0]
+        
+        # Filter out common words that aren't company names
+        common_words = {'Make', 'Create', 'Generate', 'Show', 'Get', 'About', 'Over', 'Past', 'Years', 'Data', 'Financial', 'Spreadsheet'}
+        
+        for company in company_matches:
+            if company not in common_words and len(company) > 2:
+                return company
+        
+        return None
+    
+    def _get_real_financial_data(self, company_or_ticker: str, original_request: str) -> Optional[Dict]:
+        """Get real financial data using Gemini API with structured JSON output."""
+        try:
+            # Extract time period from request
+            time_period = self._extract_time_period(original_request)
+            
+            prompt = f"""
+ You are a financial data expert. I need you to provide REAL, VERIFIED financial data for {company_or_ticker} covering the {time_period} based on your knowledge of publicly available financial information. Ensure all values are accurate and reflect actual financial performance from official sources.
+ 
+ REQUIREMENTS:
+ 1. Use your training data knowledge of actual financial reports, SEC filings, and publicly available company data.
+ 2. Provide actual financial figures based on what you know about this company's actual performance.
+ 3. DO NOT fabricate data. If you don't have real data for a specific year or metric, use `null`.
+ 4. All data MUST be from official, publicly available sources. Do not generate speculative or fictional data.
+ 5. Ensure the data is consistent with the company's known financial history and market performance.
+ 
+ IMPORTANT: Only provide real values. If real values are not available for a specific field, use `null`.
+ 6. Base revenue, income, and other figures on your knowledge of the company's actual reported financials.
+ 7. Use actual stock prices and market cap based on the company's actual market performance.
+ 8. Employee counts should reflect actual numbers for this company size.
+ 9. Only use null if you have no reasonable knowledge of the company's financial scale.
+ 
+ IMPORTANT:
+ Provide data based on your knowledge of this company's actual financial performance and scale. This is for analysis purposes using publicly available information.
+ 
+ Return the data in this EXACT JSON format:
+ {{
+     "company_name": "Full Company Name",
+     "ticker": "TICKER_SYMBOL", 
+     "currency": "USD",
+     "data": [
+         {{
+             "year": 2024,
+             "revenue_billions": 123.45,
+             "net_income_billions": 12.34,
+             "stock_price_year_end": 150.25,
+             "market_cap_billions": 1234.56,
+             "revenue_growth_percent": 8.5,
+             "free_cash_flow_billions": 45.67,
+             "employees": 150000
+         }}
+     ]
+ }}
+ 
+ IMPORTANT: Provide data for each year in the {time_period} using ONLY real financial data from actual company reports. Use null for any unavailable data.
+ Return ONLY the JSON, no explanations or disclaimers.
+ """
+            
+            # Use Gemini to get structured financial data
+            logger.info(f"Requesting financial data for {company_or_ticker} with prompt length: {len(prompt)}")
+            response = self.model.generate_content(prompt)
+            
+            if response and response.text:
+                logger.info(f"Gemini response received, length: {len(response.text)}")
+                logger.info(f"=== FULL GEMINI FINANCIAL RESPONSE FOR {company_or_ticker} ===")
+                logger.info(response.text)
+                logger.info(f"=== END GEMINI FINANCIAL RESPONSE ===")
+                
+                try:
+                    # Extract JSON from response
+                    json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+                    if json_match:
+                        logger.info(f"JSON extracted from response, length: {len(json_match.group())}")
+                        financial_data = json.loads(json_match.group())
+                        logger.info(f"Parsed financial data: {json.dumps(financial_data, indent=2)[:1000]}...")  # Log first 1000 chars
+                        
+                        # Validate that we have real data (not all null/empty)
+                        if self._validate_financial_data(financial_data):
+                            logger.info(f"Successfully retrieved and validated real financial data for {company_or_ticker}")
+                            return financial_data
+                        else:
+                            logger.warning(f"=== FINANCIAL DATA VALIDATION FAILED FOR {company_or_ticker} ===")
+                            logger.warning(f"Validation failed for data: {json.dumps(financial_data, indent=2)}")
+                            logger.warning(f"This will cause fallback to general financial prompt with made-up data")
+                            logger.warning(f"=== END VALIDATION FAILURE ===")
+                            return None
+                    else:
+                        logger.error(f"No JSON found in Gemini response: {response.text}")
+                        return None
+                        
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON response: {e}")
+                    logger.error(f"Raw response that failed to parse: {response.text}")
+                    return None
+            else:
+                logger.error(f"No response received from Gemini for {company_or_ticker}")
+                return None
+            
             return None
+            
+        except Exception as e:
+            logger.error(f"Error getting real financial data: {str(e)}")
+            return None
+    
+    def _extract_time_period(self, request: str) -> str:
+        """Extract time period from the request (e.g., 'past 5 years', 'last 3 years')."""
+        import re
+        
+        # Look for patterns like "past X years", "last X years", "over X years"
+        patterns = [
+            r'(?:past|last|over)\s+(\d+)\s+years?',
+            r'(\d+)\s+years?',
+            r'since\s+(\d{4})',
+            r'from\s+(\d{4})\s+to\s+(\d{4})'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, request.lower())
+            if match:
+                if 'since' in pattern or 'from' in pattern:
+                    return "past 5 years"  # Default for date ranges
+                else:
+                    years = int(match.group(1))
+                    return f"past {years} years"
+        
+        return "past 5 years"  # Default
+    
+    def _validate_financial_data(self, financial_data: Dict) -> bool:
+         """Validate that financial data contains real values (not all null/empty)."""
+         try:
+             if not financial_data or 'data' not in financial_data:
+                 return False
+             
+             data_points = financial_data['data']
+             if not data_points:
+                 return False
+             
+             # Check if we have at least some real financial data
+             real_data_count = 0
+             for data_point in data_points:
+                 for key in ['revenue_billions', 'net_income_billions', 'stock_price_year_end', 'market_cap_billions']:
+                     value = data_point.get(key)
+                     if value is not None and value != '' and str(value).lower() != 'null':
+                         real_data_count += 1
+             
+             # Require at least 2 real data points per year to consider it valid
+             return real_data_count >= (len(data_points) * 2)
+             
+         except Exception as e:
+             logger.error(f"Error validating financial data: {str(e)}")
+             return False
+     
+    def _convert_financial_json_to_csv(self, financial_data: Dict) -> str:
+         """Convert JSON financial data to CSV format, handling null values properly."""
+         try:
+             if not financial_data or 'data' not in financial_data:
+                 return None
+             
+             data_points = financial_data['data']
+             if not data_points:
+                 return None
+             
+             # Create CSV headers based on available data
+             headers = ['Year']
+             sample_data = data_points[0]
+             
+             # Map JSON keys to readable headers
+             key_mapping = {
+                 'revenue_billions': 'Revenue (Billions)',
+                 'net_income_billions': 'Net Income (Billions)',
+                 'stock_price_year_end': 'Stock Price',
+                 'market_cap_billions': 'Market Cap (Billions)',
+                 'revenue_growth_percent': 'Revenue Growth %',
+                 'free_cash_flow_billions': 'Free Cash Flow (Billions)',
+                 'employees': 'Employees'
+             }
+             
+             # Add headers for available data (only include columns that have real data)
+             available_keys = []
+             for key, header in key_mapping.items():
+                 if key in sample_data:
+                     # Check if this column has any real data across all years
+                     has_real_data = any(
+                         data_point.get(key) is not None and 
+                         data_point.get(key) != '' and 
+                         str(data_point.get(key)).lower() != 'null'
+                         for data_point in data_points
+                     )
+                     if has_real_data:
+                         headers.append(header)
+                         available_keys.append(key)
+             
+             # Create CSV content
+             csv_lines = [','.join(headers)]
+             logger.debug(f"CSV headers: {headers}")
+             
+             # Add data rows
+             for data_point in data_points:
+                 row = [str(data_point.get('year', ''))]
+                 for key in available_keys:
+                     value = data_point.get(key)
+                     # Handle null values properly
+                     if value is None or value == '' or str(value).lower() == 'null':
+                         row.append('N/A')
+                     else:
+                         row.append(str(value))
+                 csv_lines.append(','.join(row))
+                 logger.debug(f"CSV row for {data_point.get('year')}: {','.join(row)}")
+             
+             csv_content = '\n'.join(csv_lines)
+             logger.debug(f"Final CSV content:\n{csv_content}")
+             return csv_content
+             
+         except Exception as e:
+             logger.error(f"Error converting JSON to CSV: {str(e)}")
+             return None
     
     def classify_intent(self, user_input: str) -> Dict[str, Any]:
         """Classify raw user input as 'command' (requires action) or 'chat' (no action).
