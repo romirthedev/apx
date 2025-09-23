@@ -276,12 +276,6 @@
           // Clear input
           commandInput.value = '';
           
-          // Set auto-hide timer
-          const hideDelay = isAiResponse ? 20000 : 15000;
-          autoHideTimeout = setTimeout(() => {
-            hideOverlay();
-          }, hideDelay);
-          
         } else {
           setStatus('error');
           const errorMsg = response.error || response.result || 'Command failed';
@@ -360,11 +354,6 @@
       
       // Notify main process
       ipcRenderer.send('overlay-showing-response', false);
-      
-      // Close window after short delay
-      setTimeout(() => {
-        window.close();
-      }, 300);
     }
     
     // Prevent auto-hide when interacting with overlay
