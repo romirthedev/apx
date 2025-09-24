@@ -25,29 +25,59 @@
       width: 100%;
       height: 100%;
       background: none;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; /* Improved font stack */
       overflow: hidden;
       position: relative;
     }
     
     /* Main container with glass morphism effect */
     .overlay-container {
-      background: rgba(25, 25, 25, 0.2);
-      backdrop-filter: blur(12px);
-      border-radius: 16px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-      padding: 0;
-      height: 500px;
-      width: 700px;
-      display: flex;
-      flex-direction: column;
-      -webkit-app-region: drag;
-      margin: 20px auto;
-      position: relative;
-      overflow: hidden;
-      transition: background 0.3s ease;
-    }
+       background: rgba(25, 25, 25, 0.2);
+       backdrop-filter: blur(12px);
+       border-radius: 16px;
+       border: 1px solid rgba(255, 255, 255, 0.1);
+       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+       padding: 0;
+       height: calc(100vh - 100px);
+       width: 700px;
+       display: flex;
+       flex-direction: column;
+       -webkit-app-region: drag;
+       margin: 100px auto 20px auto;
+       position: relative;
+       overflow: hidden;
+       transition: all 0.3s ease;
+     }
+     
+     /* Transcript mode no longer adjusts main overlay - using bottom layout */
+     
+     /* Transcript overlay that appears underneath the main overlay */
+     .transcript-overlay {
+       background: rgba(25, 25, 25, 0.2);
+       backdrop-filter: blur(12px);
+       border-radius: 16px;
+       border: 1px solid rgba(255, 255, 255, 0.1);
+       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+       padding: 15px;
+       height: 150px;
+       width: calc(100% - 40px);
+       max-width: 500px;
+       position: fixed;
+       top: calc(100vh - 200px);
+       left: 50%;
+       transform: translateX(-50%);
+       z-index: 1001;
+       display: none;
+       flex-direction: column;
+       overflow: hidden;
+       transition: all 0.3s ease;
+       -webkit-app-region: drag;
+     }
+     
+     .transcript-overlay.show {
+       display: flex;
+       animation: fadeIn 0.3s ease-out;
+     }
     
     /* Meeting mode styles */
     .meeting-mode {
@@ -64,8 +94,78 @@
       padding: 4px 8px;
       border-radius: 4px;
       font-size: 12px;
-      display: none;
+      display: none !important; /* Always hidden */
       z-index: 10;
+    }
+    
+    /* Transcript overlay content styles */
+    .transcript-header {
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .transcript-content {
+      flex: 1;
+      overflow-y: auto;
+      color: white;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    
+    .transcript-entry {
+      margin-bottom: 12px;
+      padding: 8px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+    }
+    
+    .transcript-timestamp {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    
+    .transcript-speaker {
+      color: #4CAF50;
+      font-weight: 600;
+      margin-right: 8px;
+    }
+    
+    .transcript-text {
+      color: rgba(255, 255, 255, 0.9);
+    }
+    
+    .transcript-question {
+      background: rgba(255, 235, 59, 0.1);
+      border-left: 3px solid #ffeb3b;
+    }
+    
+    .transcript-ai-response {
+      background: rgba(156, 39, 176, 0.1);
+      border-left: 3px solid #9c27b0;
+    }
+    
+    .close-transcript-btn {
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+    }
+    
+    .close-transcript-btn:hover {
+      color: rgba(255, 255, 255, 1);
+      background: rgba(255, 255, 255, 0.1);
     }
     
     .meeting-indicator.active {
@@ -83,7 +183,7 @@
     max-height: 250px; /* Increased height */
     overflow-y: auto;
     font-size: 0.9em;
-    display: none; /* Hidden by default */
+    display: none !important; /* Always hidden */
   }
   
   /* Mini Transcription Overlay */
@@ -106,80 +206,190 @@
     display: none; /* Hidden by default */
   }
     
-    /* Controls container at the top */
-    .controls-container {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 20px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      -webkit-app-region: no-drag;
-    }
-    
-    /* Shortcuts section */
-    .shortcuts {
-      display: flex;
-      gap: 12px;
-    }
-    
-    .shortcut-btn {
-      background: rgba(255, 255, 255, 0.15);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: 6px;
-      color: #ffffff;
-      padding: 6px 12px;
-      font-size: 13px;
-      font-weight: 300; /* Thin font weight */
-      cursor: pointer;
-      transition: all 0.2s ease;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      white-space: nowrap; /* Ensure single line */
-    }
-    
-    .shortcut-btn:hover {
-      background: rgba(255, 255, 255, 0.25);
-      transform: translateY(-1px);
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-    }
-    
-    .shortcut-btn:active {
-      transform: translateY(0);
-    }
-    
-    .shortcut-btn.active {
-      background: rgba(255, 193, 7, 0.3);
-      border-color: rgba(255, 193, 7, 0.5);
-      color: #FFC107;
-    }
-    
-    /* Capture button */
-    .capture-btn {
-      background: #007acc;
-      border: none;
-      border-radius: 6px;
-      color: #ffffff;
-      padding: 6px 14px;
-      font-size: 13px;
-      font-weight: 300; /* Thin font weight */
-      cursor: pointer;
-      transition: all 0.2s ease;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      white-space: nowrap; /* Ensure single line */
-    }
-    
-    .capture-btn:hover {
-      background: #0088e0;
-      transform: translateY(-1px);
-      box-shadow: 0 2px 8px rgba(0, 122, 204, 0.4);
-    }
-    
-    .capture-btn:active {
-      transform: translateY(0);
-    }
+    /* Slim top bar design */
+     .slim-top-bar {
+       height: 48px;
+       background: rgba(20, 20, 20, 0.25);
+       backdrop-filter: blur(20px);
+       border-radius: 24px;
+       border: 1px solid rgba(255, 255, 255, 0.08);
+       display: flex;
+       align-items: center;
+       justify-content: space-between;
+       padding: 0 24px;
+       margin: 16px;
+       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+       -webkit-app-region: no-drag;
+       position: fixed;
+       top: 0;
+       left: 0;
+       right: 0;
+       z-index: 1000;
+     }
+     
+     /* Button group container */
+     .button-group {
+       display: flex;
+       gap: 12px;
+       align-items: center;
+     }
+     
+     /* Slim button styling */
+     .slim-btn {
+       background: transparent; /* Make background transparent */
+       border: none; /* Remove border */
+       border-radius: 18px;
+       color: rgba(255, 255, 255, 0.9);
+       padding: 8px 16px;
+       font-size: 14px; /* Slightly larger font */
+       font-weight: 500; /* Medium font weight */
+       cursor: pointer;
+       transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+       display: flex;
+       align-items: center;
+       gap: 6px;
+       white-space: nowrap;
+       height: 32px;
+       min-width: 70px;
+       justify-content: center;
+       box-shadow: none; /* Remove box shadow */
+       backdrop-filter: blur(8px);
+       position: relative;
+       overflow: hidden;
+     }
+     
+     .slim-btn:hover {
+       background: rgba(255, 255, 255, 0.05); /* Subtle hover effect */
+       border-color: transparent;
+       transform: translateY(0);
+       box-shadow: none;
+       color: rgba(255, 255, 255, 1);
+     }
+     
+     .slim-btn::before {
+       content: '';
+       position: absolute;
+       top: 0;
+       left: -100%;
+       width: 100%;
+       height: 100%;
+       background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent); /* Subtle shimmer */
+       transition: left 0.5s;
+     }
+     
+     .slim-btn:hover::before {
+       left: 100%;
+     }
+     
+     .slim-btn:active {
+       transform: translateY(0) scale(0.99);
+       box-shadow: none;
+       background: rgba(255, 255, 255, 0.03); /* Even more subtle active effect */
+     }
+     
+     .slim-btn.active {
+       background: rgba(255, 255, 255, 0.1); /* Slightly visible when active */
+       border-color: transparent;
+       color: #fff;
+       box-shadow: none;
+     }
+     
+     /* Camera button special styling */
+     .camera-btn {
+       background: transparent;
+       border-color: transparent;
+       color: rgba(255, 255, 255, 0.9);
+       box-shadow: none;
+       min-width: 40px;
+       padding: 8px 12px;
+     }
+     
+     .camera-btn:hover {
+       background: rgba(255, 255, 255, 0.1); /* Subtle white hover for camera button */
+       border-color: transparent;
+       box-shadow: none;
+       color: rgba(255, 255, 255, 1);
+     }
+     
+     /* Play/Record button styles */
+     .play-btn {
+       position: relative;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+     }
+     
+     .play-icon {
+       transition: all 0.3s ease;
+     }
+     
+     .recording-bars {
+       display: none;
+       align-items: center;
+       gap: 2px;
+       height: 16px;
+     }
+     
+     .recording-bars .bar {
+       width: 3px;
+       background: rgba(255, 255, 255, 0.9);
+       border-radius: 2px;
+       animation: recording-pulse 1.5s ease-in-out infinite;
+     }
+     
+     .recording-bars .bar:nth-child(1) { animation-delay: 0s; height: 8px; }
+     .recording-bars .bar:nth-child(2) { animation-delay: 0.2s; height: 12px; }
+     .recording-bars .bar:nth-child(3) { animation-delay: 0.4s; height: 16px; }
+     .recording-bars .bar:nth-child(4) { animation-delay: 0.6s; height: 10px; }
+     
+     @keyframes recording-pulse {
+       0%, 100% { transform: scaleY(0.3); opacity: 0.7; }
+       50% { transform: scaleY(1); opacity: 1; }
+     }
+     
+     .play-btn.recording .play-icon {
+       display: none;
+     }
+     
+     .play-btn.recording .pause-icon {
+       display: block;
+     }
+     
+     .play-btn.recording .recording-bars {
+       display: flex;
+     }
+     
+     .pause-icon {
+       transition: all 0.3s ease;
+     }
+     
+     /* Close instruction styling */
+     .close-instruction {
+       display: flex;
+       align-items: center;
+       gap: 4px;
+       font-size: 11px;
+       color: rgba(255, 255, 255, 0.6);
+     }
+     
+     .shortcut-keys {
+       background: rgba(255, 255, 255, 0.1);
+       border: 1px solid rgba(255, 255, 255, 0.2);
+       border-radius: 4px;
+       padding: 2px 6px;
+       font-size: 10px;
+       font-weight: 500;
+       color: rgba(255, 255, 255, 0.8);
+       min-width: 16px;
+       text-align: center;
+       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+     }
+     
+     .close-text {
+       font-size: 11px;
+       color: rgba(255, 255, 255, 0.5);
+       margin-left: 2px;
+     }
     
     /* Input container below controls */
     .input-container {
@@ -190,6 +400,7 @@
       box-sizing: border-box;
       -webkit-app-region: no-drag;
       gap: 10px;
+      margin-top: auto; /* Push to bottom of container */
     }
     
     .command-input {
@@ -279,12 +490,37 @@
       100% { transform: scale(1); }
     }
     
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes fadeOut {
+      from { opacity: 1; transform: translateY(0); }
+      to { opacity: 0; transform: translateY(10px); }
+    }
+    
+    @keyframes slideIn {
+      from { transform: translateX(-20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    
+    @keyframes glow {
+      0% { box-shadow: 0 0 5px rgba(0, 122, 204, 0.5); }
+      50% { box-shadow: 0 0 20px rgba(0, 122, 204, 0.8); }
+      100% { box-shadow: 0 0 5px rgba(0, 122, 204, 0.5); }
+    }
+    
     /* Response container */
     .result-container {
       flex: 1;
       background: transparent;
       padding: 0 20px 20px 20px;
-      /* max-height: 400px; */ /* Removed to prevent size changes */
       overflow-y: auto;
       display: none;
       width: 100%;
@@ -292,13 +528,15 @@
       position: relative;
       z-index: 1000;
       -webkit-app-region: no-drag;
-      transition: max-height 0.3s ease; /* Smooth transition for height changes */
+      transition: all 0.3s ease;
+      margin-bottom: 10px;
     }
     
     .result-container.show {
       display: block !important;
       visibility: visible !important;
       opacity: 1 !important;
+      animation: fadeIn 0.3s ease-out;
     }
     
     .result-content {
@@ -313,6 +551,7 @@
       min-height: 40px;
       position: relative;
       transition: all 0.3s ease;
+      animation: slideUp 0.3s ease-out;
     }
     
     .result-text {
@@ -520,19 +759,51 @@
   </style>
 </head>
 <body>
-  <div class="overlay-container">
-    <div class="meeting-indicator" id="meetingIndicator">MEETING MODE ACTIVE - Listening...</div>
-    <!-- Controls at the top -->
-    <div class="controls-container">
-      <button class="capture-btn" id="captureBtn">📸 Capture Screen</button>
-      <div class="shortcuts">
-        <button class="shortcut-btn" id="webSearchBtn">🔍 Web Search</button>
-        <button class="shortcut-btn" id="transcriptionBtn" style="display: none;">📝 Transcription</button>
-        <button class="shortcut-btn" id="meetingBtn">🎙️ Meeting Mode</button>
-        <button class="shortcut-btn" id="actionBtn">⚡ Action</button>
+    <!-- Slim Top Bar -->
+    <div class="slim-top-bar">
+      <div class="button-group">
+        <button class="slim-btn" id="chatBtn">Chat</button>
+        <button class="slim-btn" id="actionBtn">Action</button>
+        <button class="slim-btn" id="webSearchBtn">Web Search</button>
+        <button class="slim-btn play-btn" id="meetingBtn">
+          <svg class="play-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          <svg class="pause-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+            <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+          </svg>
+          <div class="recording-bars">
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+          </div>
+        </button>
+        <button class="slim-btn camera-btn" id="captureBtn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path>
+                  <circle cx="12" cy="13" r="3"></circle>
+                  <path d="M17 8h.01"></path>
+                </svg>
+            </button>
+      </div>
+      <div class="close-instruction">
+        <span class="shortcut-keys">⌘</span>
+        <span class="shortcut-keys">space</span>
+        <span class="close-text">to close</span>
       </div>
     </div>
-    <div id="transcriptionDisplay" class="transcription-display"></div>
+    
+    <!-- Transcript Overlay -->
+    <div class="transcript-overlay" id="transcriptOverlay">
+      <div class="transcript-header">
+        <span>Meeting Transcript</span>
+        <button class="close-transcript-btn" id="closeTranscriptBtn">×</button>
+      </div>
+      <div class="transcript-content" id="transcriptContent"></div>
+    </div>
+    
+    <div class="overlay-container" id="secondaryOverlay">
     <div id="miniTranscription" class="mini-transcription"></div>
     
     <!-- Input container below controls -->
@@ -553,13 +824,21 @@
     <div class="result-container" id="resultContainer">
       <div class="action-status" id="actionStatus" style="display: none;"></div>
       <div class="result-content" id="resultContent">
-        <p class="result-text" id="resultText"></p>
-      </div>
+                <p class="result-text" id="resultText"></p>
+                <button class="slim-btn" id="transcriptBtn" style="display: none;">Transcript</button>
+            </div>
     </div>
   </div>
 
   <script>
-    const { ipcRenderer } = require('electron');
+    // const { ipcRenderer } = require('electron');
+    let ipcRenderer;
+    try {
+      ipcRenderer = require('electron').ipcRenderer;
+    } catch (e) {
+      // Running in browser, not Electron
+      ipcRenderer = null;
+    }
     
     const commandInput = document.getElementById('commandInput');
     const statusIndicator = document.getElementById('statusIndicator');
@@ -568,6 +847,9 @@
     const resultText = document.getElementById('resultText');
     const actionStatus = document.getElementById('actionStatus');
     const sendBtn = document.getElementById('sendBtn');
+    const transcriptOverlay = document.getElementById('transcriptOverlay');
+    const transcriptContent = document.getElementById('transcriptContent');
+    const closeTranscriptBtn = document.getElementById('closeTranscriptBtn');
     
     // Shortcut buttons
 
@@ -595,6 +877,12 @@
       if (command && !isProcessing) {
         isProcessing = true;
         setStatus('thinking');
+        
+        // Add user input to transcript overlay if it's visible
+        if (transcriptOverlay && transcriptOverlay.classList.contains('show')) {
+          addTranscriptEntry('User', command);
+        }
+        
         try {
           let response;
           if (actionMode) {
@@ -616,6 +904,11 @@
         } catch (error) {
           console.error('Error processing command:', error);
           showResult(`Error: ${error.message}`, 'error');
+          
+          // Add error to transcript overlay if it's visible
+          if (transcriptOverlay && transcriptOverlay.classList.contains('show')) {
+            addTranscriptEntry('AI', `Error: ${error.message}`, true);
+          }
         } finally {
           isProcessing = false;
           setStatus('idle');
@@ -708,7 +1001,7 @@
         showResult('🔍 Searching the web...', 'thinking');
         
         // Call the enhanced web search automation
-        const searchResult = await ipcRenderer.invoke('enhanced-web-search', query);
+        const searchResult = ipcRenderer ? await ipcRenderer.invoke('enhanced-web-search', query) : { results: [] };
         
         if (searchResult && searchResult.success) {
           return {
@@ -735,29 +1028,55 @@
     }
     
     // Focus input when overlay is shown
-    ipcRenderer.on('focus-input', () => {
-      commandInput.focus();
-      commandInput.select();
-    });
+    if (ipcRenderer) {
+      ipcRenderer.on('focus-input', () => {
+        commandInput.focus();
+        commandInput.select();
+      });
+    }
     
     // Handle incoming messages from main process
-    ipcRenderer.on('overlay-chat-response', (event, response) => {
-      console.log('Received chat response:', response);
-      if (response.success) {
+    if (ipcRenderer) {
+      ipcRenderer.on('overlay-chat-response', (event, response) => {
+        console.log('Received chat response:', response);
+        if (response.success) {
         displayResponse(response.result);
+        
+        // Add to transcript overlay if it's visible
+        if (transcriptOverlay && transcriptOverlay.classList.contains('show')) {
+          addTranscriptEntry('AI', response.result, true);
+        }
       } else {
         displayResponse(`Error: ${response.error}`);
+        
+        // Add error to transcript overlay if it's visible
+        if (transcriptOverlay && transcriptOverlay.classList.contains('show')) {
+          addTranscriptEntry('AI', `Error: ${response.error}`, true);
+        }
       }
     });
+    }
 
-    ipcRenderer.on('overlay-action-response', (event, response) => {
+    if (ipcRenderer) {
+      ipcRenderer.on('overlay-action-response', (event, response) => {
       console.log('Received action response:', response);
       if (response.success) {
         displayResponse(`Action executed: ${response.result}`);
+        
+        // Add to transcript overlay if it's visible
+        if (transcriptOverlay && transcriptOverlay.classList.contains('show')) {
+          addTranscriptEntry('AI', `Action executed: ${response.result}`, true);
+        }
       } else {
         displayResponse(`Action error: ${response.error}`);
+        
+        // Add error to transcript overlay if it's visible
+        if (transcriptOverlay && transcriptOverlay.classList.contains('show')) {
+          addTranscriptEntry('AI', `Action error: ${response.error}`, true);
+        }
       }
     });
+    }
     
     // Add click handlers to keep overlay open when interacting
     document.addEventListener('click', (e) => {
@@ -799,7 +1118,7 @@
               if (action.app.toLowerCase() === 'mail') {
                 window.emailData = { to: '', subject: '', body: '' };
               } else {
-                await ipcRenderer.invoke('send-command', `open ${action.app}`);
+                if (ipcRenderer) await ipcRenderer.invoke('send-command', `open ${action.app}`);
               }
               break;
 
@@ -813,23 +1132,23 @@
                     `&to=${encodeURIComponent(window.emailData.to)}` +
                     `&su=${encodeURIComponent(window.emailData.subject)}` +
                     `&body=${encodeURIComponent(window.emailData.body)}`;
-                  await ipcRenderer.invoke('send-command', `open_url ${gmailUrl}`);
+                  if (ipcRenderer) await ipcRenderer.invoke('send-command', `open_url ${gmailUrl}`);
                 }
               } else {
-                await ipcRenderer.invoke('send-command', `type ${action.text}`);
+                if (ipcRenderer) await ipcRenderer.invoke('send-command', `type ${action.text}`);
               }
               break;
 
             case 'run_command':
               showActionStatus(`🖥️ Running command: ${action.command}...`);
               const cleanCommand = action.command.replace(/[\s`']+/g, ' ').trim();
-              await ipcRenderer.invoke('send-command', cleanCommand);
+              if (ipcRenderer) await ipcRenderer.invoke('send-command', cleanCommand);
               break;
 
             case 'navigate_url':
               showActionStatus(`🌐 Opening URL...`);
               const cleanUrl = action.url.replace(/[\s`']+/g, '').trim();
-              await ipcRenderer.invoke('send-command', `open_url ${cleanUrl}`);
+              if (ipcRenderer) await ipcRenderer.invoke('send-command', `open_url ${cleanUrl}`);
               break;
 
             default:
@@ -846,9 +1165,51 @@
     
     // Meeting Mode variables and functionality
     // meetingBtn and transcriptionBtn already declared above
-    const meetingIndicator = document.getElementById('meetingIndicator');
+    // const meetingIndicator = document.getElementById('meetingIndicator'); // Removed element
     const overlayContainer = document.querySelector('.overlay-container');
-    const transcriptionDisplay = document.getElementById('transcriptionDisplay');
+    // const transcriptionDisplay = document.getElementById('transcriptionDisplay'); // Removed element
+    
+    // Transcript overlay functionality
+    closeTranscriptBtn.addEventListener('click', () => {
+      transcriptOverlay.classList.remove('show');
+    });
+    
+    // Function to show transcript overlay
+    function showTranscriptOverlay() {
+      transcriptOverlay.classList.add('show');
+    }
+    
+    // Function to add transcript entry
+    function addTranscriptEntry(speaker, text, isQuestion = false, isAIResponse = false) {
+      const entry = document.createElement('div');
+      entry.className = 'transcript-entry';
+      if (isQuestion) entry.classList.add('transcript-question');
+      if (isAIResponse) entry.classList.add('transcript-ai-response');
+      
+      const timestamp = document.createElement('div');
+      timestamp.className = 'transcript-timestamp';
+      timestamp.textContent = new Date().toLocaleTimeString();
+      
+      const content = document.createElement('div');
+      
+      if (speaker) {
+        const speakerSpan = document.createElement('span');
+        speakerSpan.className = 'transcript-speaker';
+        speakerSpan.textContent = speaker + ':';
+        content.appendChild(speakerSpan);
+      }
+      
+      const textSpan = document.createElement('span');
+      textSpan.className = 'transcript-text';
+      textSpan.textContent = text;
+      content.appendChild(textSpan);
+      
+      entry.appendChild(timestamp);
+      entry.appendChild(content);
+      
+      transcriptContent.appendChild(entry);
+      transcriptContent.scrollTop = transcriptContent.scrollHeight;
+    }
     let meetingModeActive = false;
     let recognition = null;
     let isUsingGeminiModel = false; // Flag to track if we're using Gemini for transcription
@@ -874,10 +1235,10 @@
         // Using Gemini model for transcription
         showResult('Switching to Gemini AI for enhanced transcription...', 'info');
         // Clear any existing interim span
-        const existingInterimSpan = transcriptionDisplay.querySelector('.interim-text');
-        if (existingInterimSpan) {
-          existingInterimSpan.remove();
-        }
+        // const existingInterimSpan = transcriptionDisplay.querySelector('.interim-text');
+        // if (existingInterimSpan) {
+        //   existingInterimSpan.remove();
+        // }
       } else {
         // Using browser's built-in speech recognition
         initBrowserSpeechRecognition();
@@ -896,13 +1257,13 @@
     // Start Gemini-based transcription
     async function startGeminiTranscription() {
       // Create a span for real-time transcription updates
-      let geminiInterimSpan = transcriptionDisplay.querySelector('.interim-text');
-      if (!geminiInterimSpan) {
-        geminiInterimSpan = document.createElement('span');
-        geminiInterimSpan.className = 'interim-text';
-        geminiInterimSpan.style.color = '#ccc';
-        transcriptionDisplay.appendChild(geminiInterimSpan);
-      }
+      // let geminiInterimSpan = transcriptionDisplay.querySelector('.interim-text');
+      // if (!geminiInterimSpan) {
+      //   geminiInterimSpan = document.createElement('span');
+      //   geminiInterimSpan.className = 'interim-text';
+      //   geminiInterimSpan.style.color = '#ccc';
+      //   transcriptionDisplay.appendChild(geminiInterimSpan);
+      // }
       
       // Start audio capture including system audio (for Zoom/Meet)
       try {
@@ -1009,10 +1370,10 @@
         recognition.interimResults = true;
         recognition.lang = 'en-US';
         
-        const interimTranscriptionSpan = document.createElement('span');
-        interimTranscriptionSpan.className = 'interim-text';
-        interimTranscriptionSpan.style.color = '#ccc'; // Style for interim text
-        transcriptionDisplay.appendChild(interimTranscriptionSpan);
+        // const interimTranscriptionSpan = document.createElement('span');
+        // interimTranscriptionSpan.className = 'interim-text';
+        // interimTranscriptionSpan.style.color = '#ccc'; // Style for interim text
+        // transcriptionDisplay.appendChild(interimTranscriptionSpan);
 
         recognition.onresult = (event) => {
           let interimTranscript = '';
@@ -1029,11 +1390,11 @@
 
           if (finalTranscript) {
             processMeetingTranscript(finalTranscript);
-            interimTranscriptionSpan.textContent = ''; // Clear interim when final is received
+            // interimTranscriptionSpan.textContent = ''; // Clear interim when final is received
           } else {
-            interimTranscriptionSpan.textContent = interimTranscript;
+            // interimTranscriptionSpan.textContent = interimTranscript;
           }
-          transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
+          // transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
         };
         
         recognition.onerror = (event) => {
@@ -1064,12 +1425,16 @@
     // Process meeting transcript
     function processMeetingTranscript(transcript) {
       // Append the transcript to a display area
-      const p = document.createElement('p');
-      p.textContent = transcript;
+      // const p = document.createElement('p');
+      // p.textContent = transcript;
       // Insert new final transcript before the interim span
-      transcriptionDisplay.insertBefore(p, transcriptionDisplay.lastChild);
+      // transcriptionDisplay.insertBefore(p, transcriptionDisplay.lastChild);
       // Scroll to the bottom to show the latest transcript
-      transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
+      // transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
+      
+      // Add to transcript overlay
+      addTranscriptEntry('User', transcript);
+      showTranscriptOverlay();
 
       // Check if transcript contains a question or important information
       const questionPatterns = [
@@ -1083,29 +1448,32 @@
       
       if (isQuestion) {
         // Show a loading indicator in the transcription display
-        const loadingPara = document.createElement('p');
-        loadingPara.textContent = 'AI is thinking...';
-        loadingPara.style.color = '#4CAF50';
-        loadingPara.style.fontStyle = 'italic';
-        loadingPara.style.margin = '0 0 5px 0';
-        transcriptionDisplay.insertBefore(loadingPara, transcriptionDisplay.lastChild);
-        transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
+        // const loadingPara = document.createElement('p');
+        // loadingPara.textContent = 'AI is thinking...';
+        // loadingPara.style.color = '#4CAF50';
+        
+        // Add thinking indicator to transcript overlay
+        addTranscriptEntry('AI', 'Thinking...', false, true);
+        // loadingPara.style.fontStyle = 'italic';
+        // loadingPara.style.margin = '0 0 5px 0';
+        // transcriptionDisplay.insertBefore(loadingPara, transcriptionDisplay.lastChild);
+        // transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
         
         // Get AI response using Gemini
-        ipcRenderer.invoke('send-command', transcript)
+        if (ipcRenderer) ipcRenderer.invoke('send-command', transcript)
           .then(response => {
             // Replace loading indicator with the response
-            const responsePara = document.createElement('p');
-            responsePara.textContent = '🤖 ' + (response.result || 'I processed your question but don\'t have a specific answer.');
-            responsePara.style.color = '#9c27b0';
-            responsePara.style.fontWeight = 'bold';
-            responsePara.style.margin = '0 0 10px 0';
-            responsePara.style.background = 'rgba(156, 39, 176, 0.1)';
-            responsePara.style.padding = '8px';
-            responsePara.style.borderRadius = '8px';
+            // const responsePara = document.createElement('p');
+            // responsePara.textContent = '🤖 ' + (response.result || 'I processed your question but don\'t have a specific answer.');
+            // responsePara.style.color = '#9c27b0';
+            // responsePara.style.fontWeight = 'bold';
+            // responsePara.style.margin = '0 0 10px 0';
+            // responsePara.style.background = 'rgba(156, 39, 176, 0.1)';
+            // responsePara.style.padding = '8px';
+            // responsePara.style.borderRadius = '8px';
             
-            transcriptionDisplay.replaceChild(responsePara, loadingPara);
-            transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
+            // transcriptionDisplay.replaceChild(responsePara, loadingPara);
+            // transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
             
             // Also update mini transcription if active
             if (document.getElementById('miniTranscription').style.display === 'block') {
@@ -1120,6 +1488,11 @@
       }
     }
     
+    // Transcript button event listener
+    transcriptBtn.addEventListener('click', () => {
+      showTranscriptOverlay();
+    });
+    
     // Meeting Mode button event listener
     meetingBtn.addEventListener('click', async () => {
       if (!isProcessing) {
@@ -1129,20 +1502,18 @@
           // Switch to Gemini model for transcription in meeting mode
           switchTranscriptionModel(true);
           
-          // Activate meeting mode
-          overlayContainer.classList.add('meeting-mode');
-          meetingIndicator.classList.add('active');
-          transcriptionBtn.style.display = 'block'; // Show transcription button
-          transcriptionDisplay.style.display = 'block'; // Show transcription display
+          // Activate meeting mode - show recording animation
+          meetingBtn.classList.add('recording');
+          // Show transcript button when meeting mode is active
+          transcriptBtn.style.display = 'block';
           
           // Notify user
           showResult('Meeting Mode activated with Gemini AI. I\'m listening to your meeting and will provide real-time assistance when questions are detected.', 'success');
         } else {
-          // Deactivate meeting mode
-          overlayContainer.classList.remove('meeting-mode');
-          meetingIndicator.classList.remove('active');
-          transcriptionBtn.style.display = 'none'; // Hide transcription button
-          transcriptionDisplay.style.display = 'none'; // Hide transcription display
+          // Deactivate meeting mode - hide recording animation
+          meetingBtn.classList.remove('recording');
+          // Hide transcript button when meeting mode is inactive
+          transcriptBtn.style.display = 'none';
           
           // Stop any active recognition
           if (recognition) {
@@ -1162,7 +1533,8 @@
     });
 
     // Event listener for Transcription button
-    transcriptionBtn.addEventListener('click', () => {
+    if (transcriptionBtn) {
+      transcriptionBtn.addEventListener('click', () => {
       const miniTranscription = document.getElementById('miniTranscription');
       if (miniTranscription.style.display === 'none') {
         miniTranscription.style.display = 'block';
@@ -1172,24 +1544,25 @@
         miniTranscription.style.display = 'none';
       }
     });
+    }
     
     // Function to update mini transcription with recent lines
     function updateMiniTranscription() {
       if (document.getElementById('miniTranscription').style.display === 'none') return;
       
       // Get the most recent content from transcriptionDisplay
-      const allLines = transcriptionDisplay.innerText.split('\n').filter(line => line.trim() !== '');
-      const recentLines = allLines.slice(-2); // Get last 2 lines
+      // const allLines = transcriptionDisplay.innerText.split('\n').filter(line => line.trim() !== '');
+      // const recentLines = allLines.slice(-2); // Get last 2 lines
       
       // Update mini transcription
       const miniTranscription = document.getElementById('miniTranscription');
-      miniTranscription.innerHTML = recentLines.join('<br>');
+      // miniTranscription.innerHTML = recentLines.join('<br>');
       
       // If using Gemini, also show interim results
-      const interimSpan = transcriptionDisplay.querySelector('.interim-text');
-      if (interimSpan && interimSpan.textContent.trim()) {
-        miniTranscription.innerHTML += '<br><span style="color: #ccc;">' + interimSpan.textContent + '</span>';
-      }
+      // const interimSpan = transcriptionDisplay.querySelector('.interim-text');
+      // if (interimSpan && interimSpan.textContent.trim()) {
+      //   miniTranscription.innerHTML += '<br><span style="color: #ccc;">' + interimSpan.textContent + '</span>';
+      // }
       
       // Schedule next update
       setTimeout(updateMiniTranscription, 500);
@@ -1200,7 +1573,7 @@
       showActionStatus('📸 Capturing screen and reading text...');
       try {
         // Use the capture-and-ocr handler directly which calls the backend
-        const ocrResult = await ipcRenderer.invoke('capture-and-ocr');
+        const ocrResult = ipcRenderer ? await ipcRenderer.invoke('capture-and-ocr') : { text: 'OCR not available in browser' };
         
         if (ocrResult && ocrResult.success && ocrResult.text) {
           // Store OCR text globally for ongoing Q&A
@@ -1210,7 +1583,7 @@
           showResult(`Screen captured and processed. Summarizing content...`, 'thinking');
           
           // Automatically analyze the captured content with AI
-          ipcRenderer.invoke('send-command', `Summarize the following text in one or two sentences: ${ocrResult.text}`)
+          if (ipcRenderer) ipcRenderer.invoke('send-command', `Summarize the following text in one or two sentences: ${ocrResult.text}`)
             .then(response => {
               if (response.success) {
                 showResult(`Screen captured and processed. It sees: ${response.result}\n\n💡 You can now ask questions about this captured content!`, 'success', response.is_ai_response || true);
@@ -1261,8 +1634,8 @@
             showActionStatus('🔍 Finding the best site for your search...');
             try {
               // Ask the AI for the best site
-              const aiResponse = await ipcRenderer.invoke('send-command', 
-                `If the user doesn't specify a site, what's the best one for this search: ${searchQuery}`);
+              const aiResponse = ipcRenderer ? await ipcRenderer.invoke('send-command', 
+                 `If the user doesn't specify a site, what's the best one for this search: ${searchQuery}`) : { success: false, error: 'Not available in browser' };
               
               if (aiResponse.success && aiResponse.result) {
                 // Extract site name from AI response
@@ -1287,7 +1660,7 @@
           
           console.log('📡 Sending enhanced web search command:', enhancedCommand);
           console.log('Invoking ipcRenderer.invoke(\'send-command\') for web search...'); console.log('Command:', enhancedCommand);
-          const response = await ipcRenderer.invoke('send-command', enhancedCommand);
+        const response = ipcRenderer ? await ipcRenderer.invoke('send-command', enhancedCommand) : { success: false, error: 'Not available in browser' };
           handleResponse(response);
         } 
         // Handle file search
@@ -1296,7 +1669,7 @@
           console.log('📁 Sending file search command:', fileQuery);
           const enhancedCommand = `find_file ${fileQuery}`;
           console.log('Invoking ipcRenderer.invoke(\'send-command\') for file search...'); console.log('Command:', enhancedCommand);
-          const response = await ipcRenderer.invoke('send-command', enhancedCommand);
+        const response = ipcRenderer ? await ipcRenderer.invoke('send-command', enhancedCommand) : { success: false, error: 'Not available in browser' };
           handleResponse(response);
         }
         // Handle email commands
@@ -1321,7 +1694,7 @@
               // Send command to open Gmail with draft
               const enhancedCommand = `open_url ${gmailUrl}`;
               console.log('Invoking ipcRenderer.invoke(\'send-command\') for email...'); console.log('Command:', enhancedCommand);
-              const response = await ipcRenderer.invoke('send-command', enhancedCommand);
+        const response = ipcRenderer ? await ipcRenderer.invoke('send-command', enhancedCommand) : { success: false, error: 'Not available in browser' };
               handleResponse(response);
             } else {
               // If format is incorrect, show error
@@ -1335,7 +1708,7 @@
           console.log('📡 Sending GitHub repo search command...');
           const enhancedCommand = `search for github repository about ${repoQuery}`;
           console.log('Invoking ipcRenderer.invoke(\'send-command\') for GitHub search...'); console.log('Command:', enhancedCommand);
-          const response = await ipcRenderer.invoke('send-command', enhancedCommand);
+        const response = ipcRenderer ? await ipcRenderer.invoke('send-command', enhancedCommand) : { success: false, error: 'Not available in browser' };
           handleResponse(response);
         }
         // Handle calendar commands
@@ -1374,7 +1747,7 @@
             // Send command to open Google Calendar with event details
             const enhancedCommand = `open_url ${calendarUrl}`;
             console.log('Invoking ipcRenderer.invoke(\'send-command\') for calendar...'); console.log('Command:', enhancedCommand);
-            const response = await ipcRenderer.invoke('send-command', enhancedCommand);
+        const response = ipcRenderer ? await ipcRenderer.invoke('send-command', enhancedCommand) : { success: false, error: 'Not available in browser' };
             handleResponse(response);
           }
         }
@@ -1395,7 +1768,7 @@
           }
           
           console.log('Invoking ipcRenderer.invoke(\'send-command\') for regular command...');
-          const response = await ipcRenderer.invoke('send-command', enhancedCommand);
+        const response = ipcRenderer ? await ipcRenderer.invoke('send-command', enhancedCommand) : { success: false, error: 'Not available in browser' };
           handleResponse(response);
         }
       } catch (error) {
@@ -1450,6 +1823,16 @@
           // Display the result
           if (isAiResponse) {
             await typeResponse(resultText, 'success', true);
+            
+            // Add AI response to transcript overlay if it's visible
+            if (transcriptOverlay && transcriptOverlay.classList.contains('show')) {
+              // Remove any thinking indicators
+              const thinkingEntries = transcriptContent.querySelectorAll('.transcript-entry.thinking');
+              thinkingEntries.forEach(entry => entry.remove());
+              
+              // Add the actual AI response
+              addTranscriptEntry('AI', resultText, true);
+            }
           } else {
             showResult(resultText, 'success');
           }
@@ -1598,7 +1981,7 @@
       });
       
       // Notify main process that we're showing a response
-      ipcRenderer.send('overlay-showing-response', true);
+      if (ipcRenderer) ipcRenderer.send('overlay-showing-response', true);
       
       // Force clear any existing content
       resultText.innerHTML = '';
@@ -1637,6 +2020,14 @@
       resultContainer.style.height = 'auto';
       resultContainer.style.minHeight = '60px';
       resultContainer.classList.add('show');
+
+      // Show transcript button if it's an AI response
+      const transcriptBtn = document.getElementById('transcriptBtn');
+      if (isAiResponse && transcriptBtn) {
+        transcriptBtn.style.display = 'block';
+      } else if (transcriptBtn) {
+        transcriptBtn.style.display = 'none';
+      }
       
       // Keep overlay at compact size regardless of content
       resizeOverlay(120);
@@ -1665,6 +2056,16 @@
       if (isAiResponse) {
         console.log('📐 Expanding overlay to 400px for AI response typing...');
         resizeOverlay(400);
+        
+        // Add typing indicator to transcript overlay if it's visible
+        if (transcriptOverlay && transcriptOverlay.classList.contains('show')) {
+          // Remove any thinking indicators
+          const thinkingEntries = transcriptContent.querySelectorAll('.transcript-entry.thinking');
+          thinkingEntries.forEach(entry => entry.remove());
+          
+          // Add typing indicator
+          addTranscriptEntry('AI', 'Typing...', false, true);
+        }
       }
       
       for (let i = 0; i < words.length; i++) {
@@ -1683,6 +2084,16 @@
       
       // Remove typing indicator and show final result
       showResult(currentResponse.trim(), type, isAiResponse);
+      
+      // Update transcript overlay with final response if it's visible
+      if (isAiResponse && transcriptOverlay && transcriptOverlay.classList.contains('show')) {
+        // Remove any typing indicators
+        const thinkingEntries = transcriptContent.querySelectorAll('.transcript-entry.thinking');
+        thinkingEntries.forEach(entry => entry.remove());
+        
+        // Add the final AI response
+        addTranscriptEntry('AI', currentResponse.trim(), true);
+      }
     }
     
     function showActionStatus(text) {
@@ -1697,7 +2108,7 @@
     
     function resizeOverlay(height) {
       // Send both width and height to properly resize the overlay
-      ipcRenderer.send('resize-overlay', 960, height);
+      if (ipcRenderer) ipcRenderer.send('resize-overlay', 960, height);
     }
     
     function hideResult() {
@@ -1706,7 +2117,7 @@
       resultContainer.classList.remove('show');
       
       // Notify main process that response is no longer showing
-      ipcRenderer.send('overlay-showing-response', false);
+      if (ipcRenderer) ipcRenderer.send('overlay-showing-response', false);
     }
     
     function updateOCRIndicator() {
