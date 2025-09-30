@@ -3,7 +3,10 @@
 import logging
 import base64
 import json
-from typing import Dict, Any, Optional
+import threading
+import time
+import queue
+from typing import Dict, Any, Optional, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +14,11 @@ class AudioManager:
     def __init__(self):
         self.is_initialized = True
         self.use_gemini = False
+        self.is_continuous_capture_active = False
+        self.continuous_capture_thread = None
+        self.audio_queue = queue.Queue()
+        self.capture_callback = None
+        
         try:
             # Try to import speech recognition library if available
             import speech_recognition as sr
@@ -207,4 +215,228 @@ class AudioManager:
                 "success": False,
                 "error": str(e),
                 "audio_data": ""
+            }
+    
+    def start_continuous_capture(self, callback: Callable[[str], None], chunk_duration: int = 3) -> Dict[str, Any]:
+        """Start continuous audio capture for real-time transcription.
+        
+        Args:
+            callback: Function to call with each audio chunk (base64 encoded)
+            chunk_duration: Duration of each audio chunk in seconds
+            
+        Returns:
+            Dictionary with operation status
+        """
+        try:
+            if self.is_continuous_capture_active:
+                return {
+                    "success": False,
+                    "error": "Continuous capture already active"
+                }
+            
+            if not self.system_audio_available:
+                return {
+                    "success": False,
+                    "error": "System audio capture not available"
+                }
+            
+            self.capture_callback = callback
+            self.is_continuous_capture_active = True
+            
+            # Start the continuous capture thread
+            self.continuous_capture_thread = threading.Thread(
+                target=self._continuous_capture_worker,
+                args=(chunk_duration,),
+                daemon=True
+            )
+            self.continuous_capture_thread.start()
+            
+            logger.info(f"Started continuous audio capture with {chunk_duration}s chunks")
+            return {
+                "success": True,
+                "message": "Continuous capture started"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error starting continuous capture: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def stop_continuous_capture(self) -> Dict[str, Any]:
+        """Stop continuous audio capture.
+        
+        Returns:
+            Dictionary with operation status
+        """
+        try:
+            if not self.is_continuous_capture_active:
+                return {
+                    "success": False,
+                    "error": "Continuous capture not active"
+                }
+            
+            self.is_continuous_capture_active = False
+            self.capture_callback = None
+            
+            # Wait for thread to finish
+            if self.continuous_capture_thread and self.continuous_capture_thread.is_alive():
+                self.continuous_capture_thread.join(timeout=2.0)
+            
+            logger.info("Stopped continuous audio capture")
+            return {
+                "success": True,
+                "message": "Continuous capture stopped"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error stopping continuous capture: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _continuous_capture_worker(self, chunk_duration: int):
+        """Worker thread for continuous audio capture.
+        
+        Args:
+            chunk_duration: Duration of each audio chunk in seconds
+        """
+        try:
+            import pyaudio
+            import wave
+            import io
+            import base64
+            
+            # Initialize PyAudio
+            p = self.pyaudio.PyAudio()
+            
+            # Set parameters for audio capture
+            FORMAT = pyaudio.paInt16
+            CHANNELS = 1
+            RATE = 44100
+            CHUNK = 1024
+            
+            # For macOS system audio capture, we need to use a virtual audio device
+            # This is a simplified implementation that captures microphone audio
+            # In production, you would need to install and configure a virtual audio driver
+            # like BlackHole or SoundFlower to capture system audio
+            
+            # Try to find the best input device (preferably one that can capture system audio)
+            input_device_index = None
+            for i in range(p.get_device_count()):
+                device_info = p.get_device_info_by_index(i)
+                if device_info['maxInputChannels'] > 0:
+                    device_name = device_info['name'].lower()
+                    # Look for virtual audio devices that might capture system audio
+                    if any(keyword in device_name for keyword in ['blackhole', 'soundflower', 'virtual', 'aggregate']):
+                        input_device_index = i
+                        logger.info(f"Using audio device: {device_info['name']}")
+                        break
+            
+            if input_device_index is None:
+                # Fall back to default input device
+                logger.info("Using default input device (microphone only)")
+            
+            # Open stream for recording
+            stream = p.open(
+                format=FORMAT,
+                channels=CHANNELS,
+                rate=RATE,
+                input=True,
+                input_device_index=input_device_index,
+                frames_per_buffer=CHUNK
+            )
+            
+            logger.info("Continuous audio capture started")
+            
+            while self.is_continuous_capture_active:
+                try:
+                    # Record audio chunk
+                    frames = []
+                    for i in range(0, int(RATE / CHUNK * chunk_duration)):
+                        if not self.is_continuous_capture_active:
+                            break
+                        data = stream.read(CHUNK, exception_on_overflow=False)
+                        frames.append(data)
+                    
+                    if not self.is_continuous_capture_active:
+                        break
+                    
+                    # Convert frames to WAV format in memory
+                    buffer = io.BytesIO()
+                    wf = wave.open(buffer, 'wb')
+                    wf.setnchannels(CHANNELS)
+                    wf.setsampwidth(p.get_sample_size(FORMAT))
+                    wf.setframerate(RATE)
+                    wf.writeframes(b''.join(frames))
+                    wf.close()
+                    
+                    # Convert to base64
+                    buffer.seek(0)
+                    audio_data = base64.b64encode(buffer.read()).decode('utf-8')
+                    
+                    # Call the callback with the audio data
+                    if self.capture_callback and audio_data:
+                        self.capture_callback(audio_data)
+                    
+                except Exception as chunk_error:
+                    logger.error(f"Error in continuous capture chunk: {str(chunk_error)}")
+                    time.sleep(0.1)  # Brief pause before retrying
+            
+            # Clean up
+            stream.stop_stream()
+            stream.close()
+            p.terminate()
+            
+        except Exception as e:
+            logger.error(f"Error in continuous capture worker: {str(e)}")
+            self.is_continuous_capture_active = False
+    
+    def get_system_audio_setup_info(self) -> Dict[str, Any]:
+        """Get information about system audio setup for macOS.
+        
+        Returns:
+            Dictionary with setup information and recommendations
+        """
+        try:
+            import pyaudio
+            p = self.pyaudio.PyAudio()
+            
+            devices = []
+            virtual_devices = []
+            
+            for i in range(p.get_device_count()):
+                device_info = p.get_device_info_by_index(i)
+                if device_info['maxInputChannels'] > 0:
+                    devices.append({
+                        'index': i,
+                        'name': device_info['name'],
+                        'channels': device_info['maxInputChannels']
+                    })
+                    
+                    device_name = device_info['name'].lower()
+                    if any(keyword in device_name for keyword in ['blackhole', 'soundflower', 'virtual', 'aggregate']):
+                        virtual_devices.append(device_info['name'])
+            
+            p.terminate()
+            
+            return {
+                "success": True,
+                "available_devices": devices,
+                "virtual_devices": virtual_devices,
+                "has_virtual_audio": len(virtual_devices) > 0,
+                "recommendation": (
+                    "Virtual audio device detected. System audio capture should work." 
+                    if virtual_devices else 
+                    "No virtual audio device detected. Install BlackHole or SoundFlower for system audio capture."
+                )
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting audio setup info: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
             }

@@ -8,7 +8,7 @@ import traceback
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import threading
 import requests
@@ -125,6 +125,149 @@ class CluelyBackend:
                 
             except Exception as e:
                 logger.error(f"Error processing audio transcription: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/analyze_meeting', methods=['POST'])
+        def analyze_meeting():
+            try:
+                data = request.get_json() or {}
+                recent_transcript = data.get('recent_transcript', '')
+                conversation_history = data.get('conversation_history', [])
+                conversation_summary = data.get('conversation_summary', '')
+                trigger_reason = data.get('trigger_reason', 'unknown')
+                timestamp = data.get('timestamp', datetime.now().isoformat())
+                
+                if not recent_transcript and not conversation_history:
+                    return jsonify({
+                        'success': False,
+                        'error': 'No transcript or conversation history provided'
+                    })
+                
+                logger.info(f"Analyzing meeting content (trigger: {trigger_reason})")
+                
+                # Prepare context for AI analysis
+                # Build the conversation summary section separately to avoid f-string backslash issues
+                summary_section = ''
+                if conversation_summary:
+                    summary_section = f'Previous conversation summary:\n{conversation_summary}\n\n'
+                
+                analysis_prompt = f"""
+You are an AI assistant analyzing a live meeting or conversation. Based on the recent transcript, conversation history, and previous conversation summary, provide helpful insights, answers to questions, or relevant information.
+
+Trigger reason: {trigger_reason}
+Timestamp: {timestamp}
+
+Recent transcript:
+{recent_transcript}
+
+Conversation history (recent):
+{json.dumps(conversation_history, indent=2)}
+
+{summary_section}Please provide a concise, helpful response that:
+1. Answers any questions detected in the recent transcript
+2. Provides relevant context or insights from the full conversation context
+3. Suggests next steps if appropriate
+4. Keeps the response under 200 words for real-time display
+
+Response:"""
+                
+                # Use Gemini AI for analysis
+                if self.gemini_ai:
+                    ai_response = self.gemini_ai.generate_response(
+                        user_input=analysis_prompt,
+                        context=[],
+                        available_actions=[],
+                        is_chat=True
+                    )
+                    
+                    if ai_response.get('success', False):
+                        return jsonify({
+                            'success': True,
+                            'response': ai_response.get('response', ''),
+                            'trigger': trigger_reason,
+                            'timestamp': timestamp
+                        })
+                    else:
+                        logger.error(f"AI analysis failed: {ai_response.get('error')}")
+                        return jsonify({
+                            'success': False,
+                            'error': 'AI analysis failed'
+                        })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': 'AI analysis not available - Gemini AI not initialized'
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error analyzing meeting: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/start_continuous_capture', methods=['POST'])
+        def start_continuous_capture():
+            try:
+                data = request.get_json() or {}
+                chunk_duration = data.get('chunk_duration', 3)
+                
+                # Import audio manager
+                from plugins.audio_manager import AudioManager
+                audio_manager = AudioManager()
+                
+                # Define callback function to handle audio chunks
+                def audio_chunk_callback(audio_data):
+                    # In a real implementation, you might want to store these chunks
+                    # or process them immediately for transcription
+                    logger.debug(f"Received audio chunk of length: {len(audio_data)}")
+                
+                result = audio_manager.start_continuous_capture(
+                    callback=audio_chunk_callback,
+                    chunk_duration=chunk_duration
+                )
+                
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"Error starting continuous capture: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/stop_continuous_capture', methods=['POST'])
+        def stop_continuous_capture():
+            try:
+                # Import audio manager
+                from plugins.audio_manager import AudioManager
+                audio_manager = AudioManager()
+                
+                result = audio_manager.stop_continuous_capture()
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"Error stopping continuous capture: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/audio_setup_info', methods=['GET'])
+        def get_audio_setup_info():
+            try:
+                # Import audio manager
+                from plugins.audio_manager import AudioManager
+                audio_manager = AudioManager()
+                
+                result = audio_manager.get_system_audio_setup_info()
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"Error getting audio setup info: {str(e)}")
                 return jsonify({
                     'success': False,
                     'error': str(e)
@@ -366,6 +509,26 @@ class CluelyBackend:
                 'success': True,
                 'capabilities': self.command_processor.get_capabilities()
             })
+        
+        # Serve frontend files
+        @self.app.route('/')
+        def serve_index():
+            try:
+                # Serve the unified overlay as the main interface
+                src_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src')
+                return send_file(os.path.join(src_dir, 'overlay-unified.html'))
+            except Exception as e:
+                logger.error(f"Error serving index: {str(e)}")
+                return f"Error loading interface: {str(e)}", 500
+        
+        @self.app.route('/src/<path:filename>')
+        def serve_src_files(filename):
+            try:
+                src_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src')
+                return send_from_directory(src_dir, filename)
+            except Exception as e:
+                logger.error(f"Error serving file {filename}: {str(e)}")
+                return f"File not found: {filename}", 404
     
     def _is_document_creation_request(self, command: str) -> bool:
         """Check if the command is requesting document or spreadsheet creation."""
