@@ -18,8 +18,8 @@
       height: 100%;
       background: none;
     }
-    
-    body {
+      
+      body {
       margin: 0; 
       padding: 0;
       width: 100%;
@@ -756,6 +756,113 @@
       color: #ff6b6b;
       font-family: 'Courier New', monospace;
     }
+    
+    /* Permission dialog styles */
+    .permission-dialog {
+      background: rgba(40, 40, 40, 0.95);
+      backdrop-filter: blur(20px);
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 30px;
+      text-align: center;
+      color: white;
+      max-width: 400px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+      animation: slideIn 0.3s ease-out;
+    }
+    
+    .permission-dialog.error {
+      border: 1px solid rgba(255, 100, 100, 0.3);
+      background: rgba(60, 30, 30, 0.95);
+    }
+    
+    .permission-icon {
+      font-size: 48px;
+      margin-bottom: 20px;
+    }
+    
+    .permission-dialog h3 {
+      margin: 0 0 15px 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+    
+    .permission-dialog p {
+      margin: 10px 0;
+      font-size: 14px;
+      line-height: 1.5;
+      opacity: 0.9;
+    }
+    
+    .permission-instructions {
+      text-align: left;
+      margin: 20px 0;
+      padding: 15px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .permission-instructions h4 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+      color: #fff;
+    }
+    
+    .permission-instructions ol {
+      margin: 0;
+      padding-left: 20px;
+    }
+    
+    .permission-instructions li {
+      margin: 8px 0;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    
+    .permission-btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border: none;
+      border-radius: 8px;
+      color: white;
+      padding: 12px 24px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-top: 15px;
+    }
+    
+    .permission-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    }
+    
+    .permission-spinner {
+      width: 24px;
+      height: 24px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top: 2px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 20px auto 0;
+    }
+    
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-20px) scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
@@ -1163,11 +1270,25 @@
     
 
     
-    // Meeting Mode variables and functionality
-    // meetingBtn and transcriptionBtn already declared above
-    // const meetingIndicator = document.getElementById('meetingIndicator'); // Removed element
+    // New Real-Time Meeting Mode Implementation
     const overlayContainer = document.querySelector('.overlay-container');
-    // const transcriptionDisplay = document.getElementById('transcriptionDisplay'); // Removed element
+    
+    // Meeting mode state variables
+    let meetingModeActive = false;
+    let audioStream = null;
+    let mediaRecorder = null;
+    let conversationHistory = [];
+    let lastAIAnalysisTime = 0;
+    let questionDetectionActive = true;
+    let audioChunks = [];
+    let transcriptionBuffer = '';
+    let isProcessingAudio = false;
+    let transcriptionPollingInterval = null;
+    let periodicAnalysisInterval = null;
+    let maxConversationHistory = 50; // Maximum entries to keep in memory
+    let conversationSummary = ''; // Summary of older conversation parts
+    let lastSpeaker = null; // Track the last speaker for speaker change detection
+    let speakerChangeBuffer = ''; // Buffer for accumulating text from current speaker
     
     // Transcript overlay functionality
     closeTranscriptBtn.addEventListener('click', () => {
@@ -1209,282 +1330,589 @@
       
       transcriptContent.appendChild(entry);
       transcriptContent.scrollTop = transcriptContent.scrollHeight;
-    }
-    let meetingModeActive = false;
-    let recognition = null;
-    let isUsingGeminiModel = false; // Flag to track if we're using Gemini for transcription
-    
-    // Initialize browser speech recognition on load
-    window.addEventListener('load', () => {
-      initBrowserSpeechRecognition();
-    });
-    
-    // Function to switch between browser and Gemini transcription
-    async function switchTranscriptionModel(useGemini) {
-      if (useGemini === isUsingGeminiModel) return; // No change needed
       
-      // Stop current recognition if active
-      if (recognition) {
-        recognition.stop();
-        recognition = null;
-      }
-      
-      isUsingGeminiModel = useGemini;
-      
-      if (useGemini) {
-        // Using Gemini model for transcription
-        showResult('Switching to Gemini AI for enhanced transcription...', 'info');
-        // Clear any existing interim span
-        // const existingInterimSpan = transcriptionDisplay.querySelector('.interim-text');
-        // if (existingInterimSpan) {
-        //   existingInterimSpan.remove();
-        // }
-      } else {
-        // Using browser's built-in speech recognition
-        initBrowserSpeechRecognition();
-      }
-      
-      // If meeting mode is active, start the appropriate recognition
-      if (meetingModeActive) {
-        if (useGemini) {
-          startGeminiTranscription();
-        } else if (recognition) {
-          recognition.start();
-        }
-      }
+      // Add to conversation history
+      conversationHistory.push({
+        timestamp: new Date().toISOString(),
+        speaker: speaker,
+        text: text,
+        isQuestion: isQuestion,
+        isAIResponse: isAIResponse
+      });
     }
     
-    // Start Gemini-based transcription
-    async function startGeminiTranscription() {
-      // Create a span for real-time transcription updates
-      // let geminiInterimSpan = transcriptionDisplay.querySelector('.interim-text');
-      // if (!geminiInterimSpan) {
-      //   geminiInterimSpan = document.createElement('span');
-      //   geminiInterimSpan.className = 'interim-text';
-      //   geminiInterimSpan.style.color = '#ccc';
-      //   transcriptionDisplay.appendChild(geminiInterimSpan);
-      // }
-      
-      // Start audio capture including system audio (for Zoom/Meet)
+    // Permission and setup functions
+    async function requestMicrophonePermission() {
       try {
-        // This will be implemented to capture system audio
-        // For now, we'll simulate with regular audio capture
-        await captureAndProcessAudio(geminiInterimSpan);
-      } catch (error) {
-        console.error('Error starting Gemini transcription:', error);
-        showResult('Error starting transcription. Falling back to browser recognition.', 'error');
-        // Fall back to browser recognition
-        isUsingGeminiModel = false;
-        initBrowserSpeechRecognition();
-        if (recognition) recognition.start();
-      }
-    }
-    
-    // Capture and process audio for Gemini transcription
-    async function captureAndProcessAudio(interimSpan) {
-      // Set up audio capture
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      const audioChunks = [];
-      
-      // Process audio in chunks
-      mediaRecorder.ondataavailable = (event) => {
-        audioChunks.push(event.data);
-      };
-      
-      // When a chunk is complete, send to backend for processing
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks);
-        const reader = new FileReader();
+        console.log('🔐 Requesting microphone permission...');
         
-        reader.onloadend = async () => {
-          const base64Audio = reader.result.split(',')[1];
-          
-          try {
-            // Send to backend for Gemini processing
-            const response = await fetch('/transcribe_audio', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ 
-                audio_data: base64Audio,
-                use_gemini: true,
-                capture_system_audio: true // Enable system audio capture for Zoom/Meet calls
-              })
-            });
-            
-            const result = await response.json();
-            
-            if (result.success && result.text) {
-              // Process the transcription
-              processMeetingTranscript(result.text);
-              // Clear interim span
-              if (interimSpan) interimSpan.textContent = '';
-            } else if (interimSpan) {
-              // Show error in interim span
-              interimSpan.textContent = 'Listening...';
-            }
-          } catch (error) {
-            console.error('Error processing audio:', error);
-            if (interimSpan) interimSpan.textContent = 'Error processing audio';
-          }
-          
-          // Continue recording if still in meeting mode
-          if (meetingModeActive && isUsingGeminiModel) {
-            audioChunks.length = 0; // Clear chunks
-            mediaRecorder.start();
-            setTimeout(() => {
-              if (mediaRecorder.state === 'recording') {
-                mediaRecorder.stop();
-              }
-            }, 5000); // Process in 5-second chunks
-          } else {
-            // Clean up
-            stream.getTracks().forEach(track => track.stop());
-          }
-        };
+        // Show permission request dialog
+        showPermissionDialog();
         
-        reader.readAsDataURL(audioBlob);
-      };
-      
-      // Start recording
-      mediaRecorder.start();
-      
-      // Stop after 5 seconds to process
-      setTimeout(() => {
-        if (mediaRecorder.state === 'recording') {
-          mediaRecorder.stop();
-        }
-      }, 5000);
-      
-      // Update UI
-      if (interimSpan) interimSpan.textContent = 'Listening for audio from microphone and system (Zoom/Meet calls)...';
-    }
-    
-    // Initialize browser's speech recognition
-    function initBrowserSpeechRecognition() {
-      if ('webkitSpeechRecognition' in window) {
-        recognition = new webkitSpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
+        // Request microphone access
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         
-        // const interimTranscriptionSpan = document.createElement('span');
-        // interimTranscriptionSpan.className = 'interim-text';
-        // interimTranscriptionSpan.style.color = '#ccc'; // Style for interim text
-        // transcriptionDisplay.appendChild(interimTranscriptionSpan);
-
-        recognition.onresult = (event) => {
-          let interimTranscript = '';
-          let finalTranscript = '';
-
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcript = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-              finalTranscript += transcript;
-            } else {
-              interimTranscript += transcript;
-            }
-          }
-
-          if (finalTranscript) {
-            processMeetingTranscript(finalTranscript);
-            // interimTranscriptionSpan.textContent = ''; // Clear interim when final is received
-          } else {
-            // interimTranscriptionSpan.textContent = interimTranscript;
-          }
-          // transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
-        };
+        // Stop the stream immediately as we only needed permission
+        stream.getTracks().forEach(track => track.stop());
         
-        recognition.onerror = (event) => {
-          console.error('Speech recognition error:', event.error);
-          if (meetingModeActive) {
-            // Try to restart recognition if it fails
-            setTimeout(() => {
-              if (meetingModeActive) {
-                recognition.start();
-              }
-            }, 1000);
-          }
-        };
-        
-        recognition.onend = () => {
-          // Restart recognition if meeting mode is still active
-          if (meetingModeActive) {
-            recognition.start();
-          }
-        };
+        hidePermissionDialog();
+        console.log('✅ Microphone permission granted');
         return true;
-      } else {
-        alert('Speech recognition is not supported in this browser. Please use Chrome.');
+        
+      } catch (error) {
+        hidePermissionDialog();
+        console.error('❌ Microphone permission denied:', error);
+        
+        if (error.name === 'NotAllowedError') {
+          showPermissionErrorDialog();
+        } else if (error.name === 'NotFoundError') {
+          showResult('❌ No microphone found. Please connect a microphone and try again.', 'error');
+        } else {
+          showResult(`❌ Microphone access error: ${error.message}`, 'error');
+        }
+        
         return false;
       }
     }
     
-    // Process meeting transcript
-    function processMeetingTranscript(transcript) {
-      // Append the transcript to a display area
-      // const p = document.createElement('p');
-      // p.textContent = transcript;
-      // Insert new final transcript before the interim span
-      // transcriptionDisplay.insertBefore(p, transcriptionDisplay.lastChild);
-      // Scroll to the bottom to show the latest transcript
-      // transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
+    async function checkAudioSetup() {
+      try {
+        const response = await fetch('http://localhost:8888/audio_setup_info');
+        const result = await response.json();
+        return result;
+      } catch (error) {
+        console.error('Error checking audio setup:', error);
+        return { success: false, error: 'Failed to check audio setup' };
+      }
+    }
+    
+    function showAudioSetupGuidance(setupStatus) {
+      const message = setupStatus.message || 'Audio setup required';
+      const instructions = setupStatus.instructions || 'Please configure your audio setup for meeting capture.';
       
-      // Add to transcript overlay
-      addTranscriptEntry('User', transcript);
-      showTranscriptOverlay();
+      showResult(`🔧 ${message}\n\n${instructions}`, 'warning');
+    }
+    
+    function showPermissionDialog() {
+      // Create and show permission request overlay
+      const permissionOverlay = document.createElement('div');
+      permissionOverlay.id = 'permissionOverlay';
+      permissionOverlay.innerHTML = `
+        <div class="permission-dialog">
+          <div class="permission-icon">🎤</div>
+          <h3>Microphone Permission Required</h3>
+          <p>This app needs access to your microphone to capture meeting audio.</p>
+          <p>Please click "Allow" when prompted by your browser.</p>
+          <div class="permission-spinner"></div>
+        </div>
+      `;
+      
+      permissionOverlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+      `;
+      
+      document.body.appendChild(permissionOverlay);
+    }
+    
+    function hidePermissionDialog() {
+      const permissionOverlay = document.getElementById('permissionOverlay');
+      if (permissionOverlay) {
+        permissionOverlay.remove();
+      }
+    }
+    
+    function showPermissionErrorDialog() {
+      const errorOverlay = document.createElement('div');
+      errorOverlay.id = 'permissionErrorOverlay';
+      errorOverlay.innerHTML = `
+        <div class="permission-dialog error">
+          <div class="permission-icon">🚫</div>
+          <h3>Microphone Permission Denied</h3>
+          <p>To use Meeting Mode, you need to allow microphone access.</p>
+          <div class="permission-instructions">
+            <h4>How to fix this:</h4>
+            <ol>
+              <li>Click the 🔒 lock icon in your browser's address bar</li>
+              <li>Set "Microphone" to "Allow"</li>
+              <li>Refresh the page and try again</li>
+            </ol>
+          </div>
+          <button onclick="hidePermissionErrorDialog()" class="permission-btn">Got it</button>
+        </div>
+      `;
+      
+      errorOverlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+      `;
+      
+      document.body.appendChild(errorOverlay);
+    }
+    
+    function hidePermissionErrorDialog() {
+      const errorOverlay = document.getElementById('permissionErrorOverlay');
+      if (errorOverlay) {
+        errorOverlay.remove();
+      }
+    }
 
-      // Check if transcript contains a question or important information
-      const questionPatterns = [
-        /what\s+is/i, /how\s+to/i, /why\s+is/i, /when\s+did/i, /where\s+is/i,
-        /can\s+you/i, /could\s+you/i, /would\s+you/i, /should\s+we/i,
-        /explain/i, /define/i, /calculate/i, /compute/i, /solve/i,
-        /\?$/
+    // Real-time audio capture and processing functions
+    async function startRealTimeAudioCapture() {
+      try {
+        console.log('🎤 Starting real-time audio capture...');
+        
+        // First, request microphone permissions
+        const permissionGranted = await requestMicrophonePermission();
+        if (!permissionGranted) {
+          return false;
+        }
+        
+        // Check audio setup status
+        const setupStatus = await checkAudioSetup();
+        if (!setupStatus.success) {
+          showAudioSetupGuidance(setupStatus);
+          return false;
+        }
+        
+        // Start backend continuous capture
+        const response = await fetch('http://localhost:8888/start_continuous_capture', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            chunk_duration: 3 // 3-second chunks
+          })
+        });
+        
+        const result = await response.json();
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to start continuous capture');
+        }
+        
+        // Start polling for transcription chunks
+        startTranscriptionPolling();
+        
+        // Set up periodic AI analysis
+        setupPeriodicAIAnalysis();
+        
+        console.log('✅ Real-time audio capture started successfully');
+        return true;
+        
+      } catch (error) {
+        console.error('❌ Error starting audio capture:', error);
+        showResult(`Failed to start audio capture: ${error.message}`, 'error');
+        return false;
+      }
+    }
+    
+    // Start polling for transcription chunks from backend
+    function startTranscriptionPolling() {
+      // Clear any existing polling interval
+      if (transcriptionPollingInterval) {
+        clearInterval(transcriptionPollingInterval);
+      }
+      
+      // Poll for transcriptions every 3 seconds
+      transcriptionPollingInterval = setInterval(async () => {
+        if (!meetingModeActive) {
+          clearInterval(transcriptionPollingInterval);
+          transcriptionPollingInterval = null;
+          return;
+        }
+        
+        await pollForTranscription();
+      }, 3000);
+    }
+    
+    // Poll backend for new transcription data
+    async function pollForTranscription() {
+      if (isProcessingAudio) return;
+      
+      isProcessingAudio = true;
+      
+      try {
+        // Request transcription of captured audio
+        const response = await fetch('http://localhost:8888/transcribe_audio', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            audio_data: '', // Backend will capture system audio
+            use_gemini: true,
+            capture_system_audio: true
+          })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success && result.text) {
+          const transcribedText = result.text.trim();
+          
+          if (transcribedText && transcribedText.length > 0) {
+            // Detect speaker from transcribed text
+            const detectedSpeaker = detectSpeaker(transcribedText);
+            const currentSpeaker = detectedSpeaker || 'Speaker';
+            
+            // Check for speaker change
+            const speakerChanged = lastSpeaker && lastSpeaker !== currentSpeaker;
+            
+            if (speakerChanged) {
+              console.log(`🎤 Speaker change detected: ${lastSpeaker} → ${currentSpeaker}`);
+              
+              // Trigger AI analysis with the accumulated content from previous speaker
+              if (speakerChangeBuffer.trim().length > 10) {
+                await triggerAIAnalysis('speaker_change', {
+                  previousSpeaker: lastSpeaker,
+                  newSpeaker: currentSpeaker,
+                  speakerContent: speakerChangeBuffer.trim()
+                });
+              }
+              
+              // Reset buffer for new speaker
+              speakerChangeBuffer = '';
+            }
+            
+            // Update speaker tracking
+            lastSpeaker = currentSpeaker;
+            
+            // Add to speaker buffer
+            speakerChangeBuffer += transcribedText + ' ';
+            
+            // Add to transcription buffer
+            transcriptionBuffer += transcribedText + ' ';
+            
+            // Add to conversation history
+            conversationHistory.push({
+              type: 'transcription',
+              content: transcribedText,
+              timestamp: new Date().toISOString(),
+              speaker: currentSpeaker
+            });
+            
+            // Add to transcript overlay
+            addTranscriptEntry(currentSpeaker, transcribedText, detectQuestion(transcribedText));
+            
+            // Check for questions
+            if (questionDetectionActive && detectQuestion(transcribedText)) {
+              await triggerAIAnalysis('question_detected');
+            }
+          }
+        }
+        
+      } catch (error) {
+        console.error('Error polling for transcription:', error);
+      } finally {
+        isProcessingAudio = false;
+      }
+    }
+    
+    // Question detection function
+    function detectQuestion(text) {
+      const questionIndicators = [
+        '?',
+        'what',
+        'how',
+        'why',
+        'when',
+        'where',
+        'who',
+        'which',
+        'can you',
+        'could you',
+        'would you',
+        'do you',
+        'did you',
+        'will you',
+        'should',
+        'is it',
+        'are you'
       ];
       
-      const isQuestion = questionPatterns.some(pattern => pattern.test(transcript));
+      const lowerText = text.toLowerCase();
+      return questionIndicators.some(indicator => lowerText.includes(indicator));
+    }
+    
+    // Speaker detection function
+    function detectSpeaker(text) {
+      // Look for common speaker patterns in transcribed text
+      const speakerPatterns = [
+        /^([A-Z][a-z]+):\s*/,  // "John: hello there"
+        /^([A-Z][a-z]+)\s+said/i,  // "John said"
+        /^([A-Z][a-z]+)\s+asked/i,  // "John asked"
+        /^([A-Z][a-z]+)\s+replied/i,  // "John replied"
+        /Speaker\s+([A-Z])/i,  // "Speaker A", "Speaker B"
+        /^([A-Z]):\s*/,  // "A: hello", "B: hi"
+      ];
       
-      if (isQuestion) {
-        // Show a loading indicator in the transcription display
-        // const loadingPara = document.createElement('p');
-        // loadingPara.textContent = 'AI is thinking...';
-        // loadingPara.style.color = '#4CAF50';
+      for (const pattern of speakerPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+          return match[1];
+        }
+      }
+      
+      // If no specific speaker pattern found, try to infer from context
+      // Look for voice characteristics or speaking patterns
+      const voiceIndicators = [
+        { pattern: /\b(um|uh|like|you know)\b/gi, speaker: 'Speaker A' },
+        { pattern: /\b(actually|basically|essentially)\b/gi, speaker: 'Speaker B' },
+        { pattern: /\b(right|exactly|absolutely)\b/gi, speaker: 'Speaker C' }
+      ];
+      
+      // This is a simple heuristic - in a real implementation, you'd use
+      // more sophisticated speaker diarization techniques
+      return null; // Return null if no speaker detected, will default to 'Speaker'
+    }
+    
+    // Set up periodic AI analysis
+    function setupPeriodicAIAnalysis() {
+      // Analyze conversation every 30-45 seconds
+      setInterval(async () => {
+        if (meetingModeActive && transcriptionBuffer.length > 50) {
+          await triggerAIAnalysis('periodic_analysis');
+        }
+      }, 35000); // 35 seconds
+    }
+    
+    // Trigger AI analysis
+    async function triggerAIAnalysis(trigger, additionalContext = {}) {
+      if (!meetingModeActive || transcriptionBuffer.length < 10) return;
+      
+      try {
+        console.log(`🤖 Triggering AI analysis (${trigger})...`);
         
-        // Add thinking indicator to transcript overlay
-        addTranscriptEntry('AI', 'Thinking...', false, true);
-        // loadingPara.style.fontStyle = 'italic';
-        // loadingPara.style.margin = '0 0 5px 0';
-        // transcriptionDisplay.insertBefore(loadingPara, transcriptionDisplay.lastChild);
-        // transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
+        // Prepare conversation context
+        const conversationContext = {
+          recent_transcript: transcriptionBuffer,
+          conversation_history: conversationHistory.slice(-10), // Last 10 entries
+          conversation_summary: conversationSummary, // Summary of older conversation parts
+          trigger_reason: trigger,
+          timestamp: new Date().toISOString(),
+          ...additionalContext // Include any additional context (e.g., speaker change info)
+        };
         
-        // Get AI response using Gemini
-        if (ipcRenderer) ipcRenderer.invoke('send-command', transcript)
-          .then(response => {
-            // Replace loading indicator with the response
-            // const responsePara = document.createElement('p');
-            // responsePara.textContent = '🤖 ' + (response.result || 'I processed your question but don\'t have a specific answer.');
-            // responsePara.style.color = '#9c27b0';
-            // responsePara.style.fontWeight = 'bold';
-            // responsePara.style.margin = '0 0 10px 0';
-            // responsePara.style.background = 'rgba(156, 39, 176, 0.1)';
-            // responsePara.style.padding = '8px';
-            // responsePara.style.borderRadius = '8px';
-            
-            // transcriptionDisplay.replaceChild(responsePara, loadingPara);
-            // transcriptionDisplay.scrollTop = transcriptionDisplay.scrollHeight;
-            
-            // Also update mini transcription if active
-            if (document.getElementById('miniTranscription').style.display === 'block') {
-              updateMiniTranscription();
-            }
-          })
-          .catch(error => {
-            console.error('Error getting AI response:', error);
-            loadingPara.textContent = 'Error: Could not generate response';
-            loadingPara.style.color = '#f44336';
+        // Send to AI for analysis
+        const response = await fetch('/analyze_meeting', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(conversationContext)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success && result.response) {
+          // Display AI response in the overlay with proper formatting
+          showResult(result.response, 'ai-response', true);
+          
+          // Add to conversation history
+          conversationHistory.push({
+            type: 'ai_analysis',
+            content: result.response,
+            timestamp: new Date().toISOString(),
+            trigger: trigger
           });
+          
+          // Manage conversation memory
+          await manageConversationMemory();
+          
+          // Clear transcription buffer after analysis
+          transcriptionBuffer = '';
+          lastAIAnalysisTime = Date.now();
+        }
+        
+      } catch (error) {
+        console.error('Error during AI analysis:', error);
+      }
+    }
+    
+    // Start periodic AI analysis every 30-45 seconds
+    function startPeriodicAnalysis() {
+      // Clear any existing interval
+      if (periodicAnalysisInterval) {
+        clearInterval(periodicAnalysisInterval);
+      }
+      
+      // Random interval between 30-45 seconds (30000-45000ms)
+      const getRandomInterval = () => Math.floor(Math.random() * 15000) + 30000;
+      
+      const scheduleNextAnalysis = () => {
+        if (!meetingModeActive) {
+          clearInterval(periodicAnalysisInterval);
+          periodicAnalysisInterval = null;
+          return;
+        }
+        
+        periodicAnalysisInterval = setTimeout(async () => {
+          if (meetingModeActive && transcriptionBuffer.length > 20) {
+            await triggerAIAnalysis('periodic_analysis');
+          }
+          scheduleNextAnalysis(); // Schedule the next analysis
+        }, getRandomInterval());
+      };
+      
+      scheduleNextAnalysis();
+    }
+    
+    // Manage conversation memory to prevent overflow
+    async function manageConversationMemory() {
+      if (conversationHistory.length > maxConversationHistory) {
+        console.log('🧠 Managing conversation memory...');
+        
+        // Take the first half of the conversation for summarization
+        const oldEntries = conversationHistory.slice(0, Math.floor(maxConversationHistory / 2));
+        const recentEntries = conversationHistory.slice(Math.floor(maxConversationHistory / 2));
+        
+        // Create a summary of old entries
+        const summaryText = oldEntries.map(entry => {
+          if (entry.type === 'transcription') {
+            return `Speaker: ${entry.content}`;
+          } else if (entry.type === 'ai_analysis') {
+            return `AI: ${entry.content}`;
+          }
+          return entry.content;
+        }).join('\n');
+        
+        // Update conversation summary
+        if (conversationSummary) {
+          conversationSummary += '\n\n--- Previous Session ---\n' + summaryText;
+        } else {
+          conversationSummary = summaryText;
+        }
+        
+        // Keep only recent entries
+        conversationHistory = recentEntries;
+        
+        console.log(`✅ Conversation memory managed. Kept ${recentEntries.length} recent entries.`);
+      }
+    }
+    
+    // Stop real-time audio capture
+    async function stopRealTimeAudioCapture() {
+      try {
+        console.log('🛑 Stopping real-time audio capture...');
+        
+        // Stop backend continuous capture
+        const response = await fetch('http://localhost:8888/stop_continuous_capture', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        const result = await response.json();
+        
+        if (!result.success) {
+          console.warn('Warning stopping continuous capture:', result.error);
+        }
+        
+        // Stop transcription polling
+        if (transcriptionPollingInterval) {
+          clearInterval(transcriptionPollingInterval);
+          transcriptionPollingInterval = null;
+        }
+        
+        // Stop periodic AI analysis
+        if (periodicAnalysisInterval) {
+          clearInterval(periodicAnalysisInterval);
+          periodicAnalysisInterval = null;
+        }
+        
+        // Clear audio chunks
+        audioChunks = [];
+        
+        // Reset processing flag
+        isProcessingAudio = false;
+        
+        console.log('✅ Real-time audio capture stopped successfully');
+        
+      } catch (error) {
+        console.error('❌ Error stopping audio capture:', error);
+      }
+    }
+    
+    // New meeting mode activation/deactivation
+    async function toggleMeetingMode() {
+      if (isProcessing) return;
+      
+      meetingModeActive = !meetingModeActive;
+      
+      if (meetingModeActive) {
+        console.log('🎯 Activating Meeting Mode...');
+        
+        // Start real-time audio capture
+        const audioStarted = await startRealTimeAudioCapture();
+        
+        if (audioStarted) {
+          // Activate UI elements
+          meetingBtn.classList.add('recording');
+          transcriptBtn.style.display = 'block';
+          questionDetectionActive = true;
+          
+          // Initialize conversation tracking
+          conversationHistory = [];
+          transcriptionBuffer = '';
+          lastAIAnalysisTime = Date.now();
+          
+          // Start periodic AI analysis
+          startPeriodicAnalysis();
+          
+          // Auto-show transcript overlay when meeting mode is activated
+          showTranscriptOverlay();
+          
+          // Show success message
+          showResult('🎤 Meeting Mode activated! Real-time audio capture and AI analysis started.', 'success');
+          
+          console.log('✅ Meeting Mode activated successfully');
+        } else {
+          // Failed to start audio, revert state
+          meetingModeActive = false;
+          console.log('❌ Meeting Mode activation failed');
+        }
+        
+      } else {
+        console.log('🛑 Deactivating Meeting Mode...');
+        
+        // Stop audio capture
+        await stopRealTimeAudioCapture();
+        
+        // Deactivate UI elements
+        meetingBtn.classList.remove('recording');
+        transcriptBtn.style.display = 'none';
+        questionDetectionActive = false;
+        
+        // Hide transcript overlay when meeting mode is deactivated
+        transcriptOverlay.classList.remove('show');
+        
+        // Clear buffers
+        transcriptionBuffer = '';
+        audioChunks = [];
+        
+        // Show deactivation message
+        showResult('🔇 Meeting Mode deactivated.', 'success');
+        
+        console.log('✅ Meeting Mode deactivated successfully');
       }
     }
     
@@ -1494,43 +1922,7 @@
     });
     
     // Meeting Mode button event listener
-    meetingBtn.addEventListener('click', async () => {
-      if (!isProcessing) {
-        meetingModeActive = !meetingModeActive;
-        
-        if (meetingModeActive) {
-          // Switch to Gemini model for transcription in meeting mode
-          switchTranscriptionModel(true);
-          
-          // Activate meeting mode - show recording animation
-          meetingBtn.classList.add('recording');
-          // Show transcript button when meeting mode is active
-          transcriptBtn.style.display = 'block';
-          
-          // Notify user
-          showResult('Meeting Mode activated with Gemini AI. I\'m listening to your meeting and will provide real-time assistance when questions are detected.', 'success');
-        } else {
-          // Deactivate meeting mode - hide recording animation
-          meetingBtn.classList.remove('recording');
-          // Hide transcript button when meeting mode is inactive
-          transcriptBtn.style.display = 'none';
-          
-          // Stop any active recognition
-          if (recognition) {
-            recognition.stop();
-          }
-          
-          // Stop Gemini transcription if active
-          if (isUsingGeminiModel) {
-            // Additional cleanup for Gemini transcription
-            switchTranscriptionModel(false);
-          }
-          
-          // Notify user
-          showResult('Meeting Mode deactivated.', 'success');
-        }
-      }
-    });
+    meetingBtn.addEventListener('click', toggleMeetingMode);
 
     // Event listener for Transcription button
     if (transcriptionBtn) {

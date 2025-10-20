@@ -8,7 +8,7 @@ import traceback
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import threading
 import requests
@@ -72,6 +72,11 @@ class CluelyBackend:
         # Context storage for conversation continuity
         self.context_storage: Dict[str, List[Dict]] = {}
         
+        # Storage for latest audio chunk and transcription from continuous capture
+        self.latest_audio_chunk = None
+        self.latest_transcription = None
+        self.transcription_lock = threading.Lock()
+        
         self._setup_routes()
         
     def _setup_routes(self):
@@ -83,12 +88,108 @@ class CluelyBackend:
                 'version': '1.0.0'
             })
         
+        @self.app.route('/audio-test')
+        def audio_test():
+            return send_file('../src/audio-test.html')
+        
+        @self.app.route('/analyze_audio_base64', methods=['POST'])
+        def analyze_audio_base64():
+            """Analyze audio from base64 data using Gemini AI"""
+            try:
+                data = request.get_json() or {}
+                audio_data = data.get('data', '')
+                mime_type = data.get('mimeType', 'audio/webm')
+                
+                if not audio_data:
+                    return jsonify({
+                        'success': False,
+                        'error': 'No audio data provided'
+                    })
+                
+                # Import audio manager
+                from plugins.audio_manager import AudioManager
+                audio_manager = AudioManager()
+                
+                # Analyze audio using Gemini AI
+                logger.info(f"Analyzing audio with Gemini AI (mime_type: {mime_type})")
+                result = audio_manager.analyze_audio_from_base64(audio_data, mime_type)
+                
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"Error analyzing audio from base64: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/analyze_audio_file', methods=['POST'])
+        def analyze_audio_file():
+            """Analyze audio from file path using Gemini AI"""
+            try:
+                data = request.get_json() or {}
+                file_path = data.get('path', '')
+                
+                if not file_path:
+                    return jsonify({
+                        'success': False,
+                        'error': 'No file path provided'
+                    })
+                
+                # Read audio file and convert to base64
+                import os
+                if not os.path.exists(file_path):
+                    return jsonify({
+                        'success': False,
+                        'error': f'File not found: {file_path}'
+                    })
+                
+                try:
+                    with open(file_path, 'rb') as audio_file:
+                        audio_data = base64.b64encode(audio_file.read()).decode('utf-8')
+                    
+                    # Determine MIME type based on file extension
+                    file_ext = os.path.splitext(file_path)[1].lower()
+                    mime_type_map = {
+                        '.mp3': 'audio/mp3',
+                        '.wav': 'audio/wav',
+                        '.webm': 'audio/webm',
+                        '.m4a': 'audio/mp4',
+                        '.ogg': 'audio/ogg'
+                    }
+                    mime_type = mime_type_map.get(file_ext, 'audio/mp3')
+                    
+                    # Import audio manager
+                    from plugins.audio_manager import AudioManager
+                    audio_manager = AudioManager()
+                    
+                    # Analyze audio using Gemini AI
+                    logger.info(f"Analyzing audio file: {file_path} (mime_type: {mime_type})")
+                    result = audio_manager.analyze_audio_from_base64(audio_data, mime_type)
+                    
+                    return jsonify(result)
+                    
+                except Exception as file_error:
+                    logger.error(f"Error reading audio file {file_path}: {str(file_error)}")
+                    return jsonify({
+                        'success': False,
+                        'error': f'Error reading audio file: {str(file_error)}'
+                    })
+                
+            except Exception as e:
+                logger.error(f"Error analyzing audio file: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
         @self.app.route('/transcribe_audio', methods=['POST'])
         def transcribe_audio():
+            """Legacy endpoint for audio transcription - now uses Gemini AI"""
             try:
                 data = request.get_json() or {}
                 audio_data = data.get('audio_data', '')
-                use_gemini = data.get('use_gemini', False)
+                use_gemini = data.get('use_gemini', True)  # Default to True now
                 capture_system_audio = data.get('capture_system_audio', False)
                 
                 # Import audio manager
@@ -97,14 +198,27 @@ class CluelyBackend:
                 
                 # If requested to capture system audio (for Zoom/Meet calls)
                 if capture_system_audio and not audio_data:
-                    logger.info("Attempting to capture system audio...")
-                    capture_result = audio_manager.capture_system_audio(duration_seconds=5)
-                    
-                    if capture_result.get('success', False):
-                        audio_data = capture_result.get('audio_data', '')
-                        logger.info("Successfully captured system audio")
-                    else:
-                        logger.warning(f"System audio capture failed: {capture_result.get('error')}")
+                    logger.info("Retrieving latest transcription from continuous capture...")
+                    # Return the latest transcription from continuous capture
+                    with self.transcription_lock:
+                        if self.latest_transcription:
+                            transcription = self.latest_transcription.copy()
+                            # Clear the transcription so we don't return the same one multiple times
+                            self.latest_transcription = None
+                            logger.info(f"Returning transcription: {transcription.get('text', '')[:50]}...")
+                            return jsonify({
+                                'success': transcription.get('success', False),
+                                'text': transcription.get('text', ''),
+                                'timestamp': transcription.get('timestamp', ''),
+                                'error': transcription.get('error', '')
+                            })
+                        else:
+                            logger.debug("No new transcription available")
+                            return jsonify({
+                                'success': True,
+                                'text': '',
+                                'message': 'No new transcription available'
+                            })
                 
                 if not audio_data:
                     return jsonify({
@@ -112,8 +226,8 @@ class CluelyBackend:
                         'error': 'No audio data provided or system audio capture failed'
                     })
                 
-                # Transcribe audio with specified model
-                logger.info(f"Transcribing audio with {'Gemini' if use_gemini else 'standard'} model")
+                # Transcribe audio using Gemini AI
+                logger.info(f"Transcribing audio with Gemini AI")
                 result = audio_manager.transcribe_audio(audio_data, use_gemini=use_gemini)
                 
                 # If transcription failed, use sample data
@@ -125,6 +239,183 @@ class CluelyBackend:
                 
             except Exception as e:
                 logger.error(f"Error processing audio transcription: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/analyze_meeting', methods=['POST'])
+        def analyze_meeting():
+            try:
+                data = request.get_json() or {}
+                recent_transcript = data.get('recent_transcript', '')
+                conversation_history = data.get('conversation_history', [])
+                conversation_summary = data.get('conversation_summary', '')
+                trigger_reason = data.get('trigger_reason', 'unknown')
+                timestamp = data.get('timestamp', datetime.now().isoformat())
+                
+                # Handle speaker change context
+                previous_speaker = data.get('previousSpeaker', '')
+                new_speaker = data.get('newSpeaker', '')
+                speaker_content = data.get('speakerContent', '')
+                
+                if not recent_transcript and not conversation_history:
+                    return jsonify({
+                        'success': False,
+                        'error': 'No transcript or conversation history provided'
+                    })
+                
+                logger.info(f"Analyzing meeting content (trigger: {trigger_reason})")
+                
+                # Prepare context for AI analysis
+                # Build the conversation summary section separately to avoid f-string backslash issues
+                summary_section = ''
+                if conversation_summary:
+                    summary_section = f'Previous conversation summary:\n{conversation_summary}\n\n'
+                
+                # Build speaker change context if applicable
+                speaker_change_section = ''
+                if trigger_reason == 'speaker_change' and previous_speaker and new_speaker:
+                    speaker_change_section = f'\nSpeaker Change Context:\n- Previous speaker: {previous_speaker}\n- New speaker: {new_speaker}\n- Previous speaker\'s content: {speaker_content}\n\n'
+                
+                analysis_prompt = f"""
+You are an AI assistant analyzing a live meeting or conversation. Based on the recent transcript, conversation history, and previous conversation summary, provide helpful insights, answers to questions, or relevant information.
+
+Trigger reason: {trigger_reason}
+Timestamp: {timestamp}
+
+Recent transcript:
+{recent_transcript}
+
+Conversation history (recent):
+{json.dumps(conversation_history, indent=2)}
+
+{summary_section}{speaker_change_section}Please provide a concise, helpful response that:
+1. Answers any questions detected in the recent transcript
+2. Provides relevant context or insights from the full conversation context
+3. If this is a speaker change, acknowledge the transition and provide relevant context
+4. Suggests next steps if appropriate
+5. Keeps the response under 200 words for real-time display
+
+Response:"""
+                
+                # Use Gemini AI for analysis
+                if self.gemini_ai:
+                    ai_response = self.gemini_ai.generate_response(
+                        user_input=analysis_prompt,
+                        context=[],
+                        available_actions=[],
+                        is_chat=True
+                    )
+                    
+                    if ai_response.get('success', False):
+                        return jsonify({
+                            'success': True,
+                            'response': ai_response.get('response', ''),
+                            'trigger': trigger_reason,
+                            'timestamp': timestamp
+                        })
+                    else:
+                        logger.error(f"AI analysis failed: {ai_response.get('error')}")
+                        return jsonify({
+                            'success': False,
+                            'error': 'AI analysis failed'
+                        })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': 'AI analysis not available - Gemini AI not initialized'
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error analyzing meeting: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/start_continuous_capture', methods=['POST'])
+        def start_continuous_capture():
+            try:
+                data = request.get_json() or {}
+                chunk_duration = data.get('chunk_duration', 3)
+                
+                # Import audio manager
+                from plugins.audio_manager import AudioManager
+                audio_manager = AudioManager()
+                
+                # Define callback function to handle audio chunks
+                def audio_chunk_callback(audio_data):
+                    # Store the latest audio chunk for transcription requests
+                    self.latest_audio_chunk = audio_data
+                    logger.debug(f"Received audio chunk of length: {len(audio_data)}")
+                    
+                    # Automatically transcribe the audio chunk
+                    try:
+                        transcription_result = audio_manager.transcribe_audio(audio_data, use_gemini=True)
+                        if transcription_result.get('success') and transcription_result.get('text'):
+                            with self.transcription_lock:
+                                self.latest_transcription = {
+                                    'text': transcription_result['text'],
+                                    'timestamp': datetime.now().isoformat(),
+                                    'success': True
+                                }
+                            logger.info(f"Transcribed: {transcription_result['text'][:50]}...")
+                        else:
+                            logger.debug("No speech detected in audio chunk")
+                    except Exception as transcription_error:
+                        logger.error(f"Error transcribing audio chunk: {str(transcription_error)}")
+                        with self.transcription_lock:
+                            self.latest_transcription = {
+                                'text': '',
+                                'timestamp': datetime.now().isoformat(),
+                                'success': False,
+                                'error': str(transcription_error)
+                            }
+                
+                result = audio_manager.start_continuous_capture(
+                    callback=audio_chunk_callback,
+                    chunk_duration=chunk_duration
+                )
+                
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"Error starting continuous capture: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/stop_continuous_capture', methods=['POST'])
+        def stop_continuous_capture():
+            try:
+                # Import audio manager
+                from plugins.audio_manager import AudioManager
+                audio_manager = AudioManager()
+                
+                result = audio_manager.stop_continuous_capture()
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"Error stopping continuous capture: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/audio_setup_info', methods=['GET'])
+        def get_audio_setup_info():
+            try:
+                # Import audio manager
+                from plugins.audio_manager import AudioManager
+                audio_manager = AudioManager()
+                
+                result = audio_manager.get_system_audio_setup_info()
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"Error getting audio setup info: {str(e)}")
                 return jsonify({
                     'success': False,
                     'error': str(e)
@@ -366,6 +657,26 @@ class CluelyBackend:
                 'success': True,
                 'capabilities': self.command_processor.get_capabilities()
             })
+        
+        # Serve frontend files
+        @self.app.route('/')
+        def serve_index():
+            try:
+                # Serve the unified overlay as the main interface
+                src_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src')
+                return send_file(os.path.join(src_dir, 'overlay-unified.html'))
+            except Exception as e:
+                logger.error(f"Error serving index: {str(e)}")
+                return f"Error loading interface: {str(e)}", 500
+        
+        @self.app.route('/src/<path:filename>')
+        def serve_src_files(filename):
+            try:
+                src_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src')
+                return send_from_directory(src_dir, filename)
+            except Exception as e:
+                logger.error(f"Error serving file {filename}: {str(e)}")
+                return f"File not found: {filename}", 404
     
     def _is_document_creation_request(self, command: str) -> bool:
         """Check if the command is requesting document or spreadsheet creation."""

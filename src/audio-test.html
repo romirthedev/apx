@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Analysis Test - Gemini AI</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .record-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .record-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .record-btn:hover {
+            background: #45a049;
+        }
+        .record-btn.recording {
+            background: #f44336;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .status.success {
+            background: #e8f5e8;
+            color: #2e7d32;
+        }
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            border-left: 4px solid #2196F3;
+        }
+        .file-section {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 1px solid #ddd;
+        }
+        .file-input {
+            margin: 10px 0;
+        }
+        .analyze-btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .analyze-btn:hover {
+            background: #1976D2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Audio Analysis with Gemini AI</h1>
+        
+        <!-- Microphone Recording Section -->
+        <div class="record-section">
+            <h2>Record from Microphone</h2>
+            <button id="recordBtn" class="record-btn">🎤 Start Recording</button>
+            <div id="recordStatus" class="status" style="display: none;"></div>
+        </div>
+        
+        <!-- File Upload Section -->
+        <div class="file-section">
+            <h2>Analyze Audio File</h2>
+            <div class="file-input">
+                <input type="file" id="audioFile" accept="audio/*">
+                <button id="analyzeFileBtn" class="analyze-btn">🔍 Analyze File</button>
+            </div>
+            <div id="fileStatus" class="status" style="display: none;"></div>
+        </div>
+        
+        <!-- Results Section -->
+        <div id="results" class="result" style="display: none;">
+            <h3>Analysis Result:</h3>
+            <div id="resultText"></div>
+            <div id="resultTimestamp" style="font-size: 12px; color: #666; margin-top: 10px;"></div>
+        </div>
+    </div>
+
+    <script>
+        const BACKEND_URL = 'http://localhost:8888';
+        
+        let mediaRecorder = null;
+        let isRecording = false;
+        let audioChunks = [];
+        
+        const recordBtn = document.getElementById('recordBtn');
+        const recordStatus = document.getElementById('recordStatus');
+        const analyzeFileBtn = document.getElementById('analyzeFileBtn');
+        const audioFileInput = document.getElementById('audioFile');
+        const fileStatus = document.getElementById('fileStatus');
+        const results = document.getElementById('results');
+        const resultText = document.getElementById('resultText');
+        const resultTimestamp = document.getElementById('resultTimestamp');
+        
+        // Show status message
+        function showStatus(element, message, type = 'info') {
+            element.textContent = message;
+            element.className = `status ${type}`;
+            element.style.display = 'block';
+        }
+        
+        // Hide status message
+        function hideStatus(element) {
+            element.style.display = 'none';
+        }
+        
+        // Show results
+        function showResults(text, timestamp) {
+            resultText.textContent = text;
+            resultTimestamp.textContent = `Analyzed at: ${new Date(timestamp).toLocaleString()}`;
+            results.style.display = 'block';
+        }
+        
+        // Handle microphone recording
+        recordBtn.addEventListener('click', async () => {
+            if (!isRecording) {
+                // Start recording
+                try {
+                    showStatus(recordStatus, 'Requesting microphone access...', 'info');
+                    
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    
+                    mediaRecorder.ondataavailable = (event) => {
+                        audioChunks.push(event.data);
+                    };
+                    
+                    mediaRecorder.onstop = async () => {
+                        showStatus(recordStatus, 'Processing audio...', 'info');
+                        
+                        const audioBlob = new Blob(audioChunks, { 
+                            type: audioChunks[0]?.type || 'audio/webm' 
+                        });
+                        
+                        // Convert to base64
+                        const reader = new FileReader();
+                        reader.onloadend = async () => {
+                            const base64Data = reader.result.split(',')[1];
+                            
+                            try {
+                                const response = await fetch(`${BACKEND_URL}/analyze_audio_base64`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({
+                                        data: base64Data,
+                                        mimeType: audioBlob.type
+                                    })
+                                });
+                                
+                                const result = await response.json();
+                                
+                                if (result.success) {
+                                    showStatus(recordStatus, 'Audio analyzed successfully!', 'success');
+                                    showResults(result.text, result.timestamp);
+                                } else {
+                                    showStatus(recordStatus, `Analysis failed: ${result.error}`, 'error');
+                                }
+                            } catch (error) {
+                                showStatus(recordStatus, `Network error: ${error.message}`, 'error');
+                            }
+                        };
+                        
+                        reader.readAsDataURL(audioBlob);
+                        
+                        // Stop all tracks
+                        stream.getTracks().forEach(track => track.stop());
+                    };
+                    
+                    mediaRecorder.start();
+                    isRecording = true;
+                    recordBtn.textContent = '⏹️ Stop Recording';
+                    recordBtn.classList.add('recording');
+                    showStatus(recordStatus, 'Recording... Click stop when finished.', 'info');
+                    
+                } catch (error) {
+                    showStatus(recordStatus, `Could not start recording: ${error.message}`, 'error');
+                }
+            } else {
+                // Stop recording
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                }
+                isRecording = false;
+                recordBtn.textContent = '🎤 Start Recording';
+                recordBtn.classList.remove('recording');
+            }
+        });
+        
+        // Handle file analysis
+        analyzeFileBtn.addEventListener('click', async () => {
+            const file = audioFileInput.files[0];
+            if (!file) {
+                showStatus(fileStatus, 'Please select an audio file first.', 'error');
+                return;
+            }
+            
+            showStatus(fileStatus, 'Converting file to base64...', 'info');
+            
+            try {
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                    const base64Data = reader.result.split(',')[1];
+                    
+                    showStatus(fileStatus, 'Analyzing audio with Gemini AI...', 'info');
+                    
+                    try {
+                        const response = await fetch(`${BACKEND_URL}/analyze_audio_base64`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                data: base64Data,
+                                mimeType: file.type || 'audio/mp3'
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            showStatus(fileStatus, 'File analyzed successfully!', 'success');
+                            showResults(result.text, result.timestamp);
+                        } else {
+                            showStatus(fileStatus, `Analysis failed: ${result.error}`, 'error');
+                        }
+                    } catch (error) {
+                        showStatus(fileStatus, `Network error: ${error.message}`, 'error');
+                    }
+                };
+                
+                reader.readAsDataURL(file);
+                
+            } catch (error) {
+                showStatus(fileStatus, `File reading error: ${error.message}`, 'error');
+            }
+        });
+        
+        // Check backend connection on load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch(`${BACKEND_URL}/health`);
+                if (response.ok) {
+                    console.log('✅ Backend connection successful');
+                } else {
+                    console.warn('⚠️ Backend health check failed');
+                }
+            } catch (error) {
+                console.error('❌ Backend connection failed:', error);
+            }
+        });
+    </script>
+</body>
+</html>
