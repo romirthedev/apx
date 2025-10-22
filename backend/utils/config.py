@@ -86,7 +86,7 @@ class Config:
             },
             "apis": {
                 "gemini": {
-                    "api_key": "AIzaSyChOWLEjemOMWU2d0gLrZ0Y9_ZezqZPLn8",
+                    "api_key": "AIzaSyA8WhezjW_3rd1_RO2ebRnlGAZKYDH_xN4",
                     "model": "gemini-2.5-flash",
                     "enabled": True
                 },
@@ -109,7 +109,7 @@ class Config:
         config_exists = self.config_file.exists()
         self.config = self.load_config()
         # Ensure Gemini API key and enabled status are set from the user's input
-        self.config['apis']['gemini']['api_key'] = 'AIzaSyChOWLEjemOMWU2d0gLrZ0Y9_ZezqZPLn8'
+        self.config['apis']['gemini']['api_key'] = 'AIzaSyA8WhezjW_3rd1_RO2ebRnlGAZKYDH_xN4'
         self.config['apis']['gemini']['model'] = 'gemini-2.5-flash'
         self.config['apis']['gemini']['enabled'] = True
         

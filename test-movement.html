@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Overlay Movement Test - Fixed</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: visible;
+            position: relative;
+        }
+        
+        .overlay-container {
+            background: rgba(25, 25, 25, 0.2);
+            backdrop-filter: blur(12px);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            padding: 20px;
+            width: 400px;
+            max-height: calc(100vh - 100px);
+            display: flex;
+            flex-direction: column;
+            position: absolute;
+            top: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            overflow: auto;
+            transition: all 0.3s ease;
+        }
+        
+        .content {
+            color: white;
+            text-align: center;
+        }
+        
+        .instructions {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .position-display {
+            background: rgba(0, 122, 204, 0.2);
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 15px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .status {
+            color: #4CAF50;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="overlay-container" id="overlay">
+        <div class="content">
+            <h2>🎯 Overlay Movement Test - FIXED!</h2>
+            <p>This overlay can now move freely anywhere on the screen!</p>
+            
+            <div class="instructions">
+                <strong>Controls:</strong><br>
+                • <kbd>⌘ + ↑</kbd> Move up<br>
+                • <kbd>⌘ + ↓</kbd> Move down<br>
+                • <kbd>⌘ + ←</kbd> Move left<br>
+                • <kbd>⌘ + →</kbd> Move right
+            </div>
+            
+            <div class="position-display" id="position">
+                Position: top=100px, left=50%
+            </div>
+            
+            <div class="status" id="status">
+                ✅ No more invisible boundaries!
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Handle Command+Arrow keys for moving the overlay
+        document.addEventListener('keydown', (event) => {
+            // Check if Command key (Meta key on Mac) is pressed with arrow keys
+            if (event.metaKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+                event.preventDefault();
+                
+                const overlayContainer = document.getElementById('overlay');
+                if (!overlayContainer) return;
+                
+                // Get current position
+                const currentStyle = window.getComputedStyle(overlayContainer);
+                const currentTop = parseInt(currentStyle.top) || 100;
+                const currentLeft = parseInt(currentStyle.left) || window.innerWidth / 2;
+                
+                // Calculate movement step (20px per keypress)
+                const step = 20;
+                let newTop = currentTop;
+                let newLeft = currentLeft;
+                
+                // Calculate new position based on arrow key
+                switch (event.key) {
+                    case 'ArrowUp':
+                        newTop = Math.max(-50, currentTop - step);
+                        break;
+                    case 'ArrowDown':
+                        newTop = Math.min(window.innerHeight - 100, currentTop + step);
+                        break;
+                    case 'ArrowLeft':
+                        newLeft = Math.max(50, currentLeft - step);
+                        break;
+                    case 'ArrowRight':
+                        newLeft = Math.min(window.innerWidth - 50, currentLeft + step);
+                        break;
+                }
+                
+                // Apply new position
+                overlayContainer.style.top = `${newTop}px`;
+                overlayContainer.style.left = `${newLeft}px`;
+                overlayContainer.style.transform = 'none'; // Remove the centering transform
+                
+                // Update position display
+                document.getElementById('position').textContent = `Position: top=${newTop}px, left=${newLeft}px`;
+                document.getElementById('status').textContent = `✅ Moved successfully! No clipping!`;
+                
+                console.log(`🎯 Moved overlay: top=${newTop}px, left=${newLeft}px`);
+            }
+        });
+        
+        // Update initial position display
+        window.addEventListener('load', () => {
+            const overlay = document.getElementById('overlay');
+            const rect = overlay.getBoundingClientRect();
+            document.getElementById('position').textContent = `Position: top=${rect.top}px, left=${rect.left}px`;
+        });
+    </script>
+</body>
+</html>

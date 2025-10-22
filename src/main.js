@@ -202,6 +202,34 @@ function registerIpcHandlers() {
     }
   });
 
+  // IPC handler to move overlay window
+  ipcMain.on('move-overlay-window', (event, direction) => {
+    safeOverlayOperation((overlay) => {
+      const [currentX, currentY] = overlay.getPosition();
+      const step = 20;
+      let newX = currentX;
+      let newY = currentY;
+      
+      switch (direction) {
+        case 'up':
+          newY = Math.max(0, currentY - step);
+          break;
+        case 'down':
+          newY = Math.min(screen.getPrimaryDisplay().workAreaSize.height - 100, currentY + step);
+          break;
+        case 'left':
+          newX = Math.max(0, currentX - step);
+          break;
+        case 'right':
+          newX = Math.min(screen.getPrimaryDisplay().workAreaSize.width - overlay.getBounds().width, currentX + step);
+          break;
+      }
+      
+      overlay.setPosition(newX, newY);
+      console.log(`🎯 Moved overlay window: x=${newX}, y=${newY}`);
+    });
+  });
+
   // IPC handler for enhanced web search
   ipcMain.handle('enhanced-web-search', async (event, query) => {
     return new Promise((resolve) => {

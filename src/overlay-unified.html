@@ -12,6 +12,11 @@
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js" integrity="sha384-cpW21h6RZv/phavutF+AuVYrr+dA8xD9zs6FwLpaCct6O9ctzYFfFr4dgmgccOTx" crossorigin="anonymous"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
   
+  <!-- Prism.js for syntax highlighting -->
+  <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  
   <style>
     html {
       width: 100%;
@@ -622,20 +627,101 @@
       color: #ffeb3b;
     }
     
+    /* Clean code block styling that integrates naturally with overlay text */
     .result-text pre {
-      background: rgba(0, 0, 0, 0.3);
-      padding: 12px;
-      border-radius: 8px;
-      overflow-x: auto;
+      background: rgba(30, 30, 30, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: 16px;
       margin: 12px 0;
-      border-left: 3px solid #4caf50;
+      overflow-x: auto;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #f8f8f2;
+      white-space: pre;
+      word-wrap: normal;
     }
     
     .result-text pre code {
       background: none;
+      border: none;
       padding: 0;
-      color: #ffffff;
-      font-size: 13px;
+      margin: 0;
+      font-size: inherit;
+      color: inherit;
+      border-radius: 0;
+      display: block;
+      font-family: inherit;
+      font-weight: normal;
+      white-space: pre;
+      word-wrap: normal;
+    }
+    
+    /* Enhanced code block with language label */
+    .result-text pre[class*="language-"]::before {
+      content: attr(data-language);
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.7);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    /* Prism theme overrides for better visibility */
+    .result-text .token.comment,
+    .result-text .token.prolog,
+    .result-text .token.doctype,
+    .result-text .token.cdata {
+      color: #7c7c7c;
+    }
+    
+    .result-text .token.punctuation {
+      color: #c9c9c9;
+    }
+    
+    .result-text .token.property,
+    .result-text .token.tag,
+    .result-text .token.boolean,
+    .result-text .token.number,
+    .result-text .token.constant,
+    .result-text .token.symbol,
+    .result-text .token.deleted {
+      color: #f92672;
+    }
+    
+    .result-text .token.selector,
+    .result-text .token.attr-name,
+    .result-text .token.string,
+    .result-text .token.char,
+    .result-text .token.builtin,
+    .result-text .token.inserted {
+      color: #a6e22e;
+    }
+    
+    .result-text .token.operator,
+    .result-text .token.entity,
+    .result-text .token.url,
+    .result-text .language-css .token.string,
+    .result-text .style .token.string {
+      color: #f8f8f2;
+    }
+    
+    .result-text .token.atrule,
+    .result-text .token.attr-value,
+    .result-text .token.keyword {
+      color: #66d9ef;
+    }
+    
+    .result-text .token.function,
+    .result-text .token.class-name {
+      color: #fd971f;
     }
     
     .result-text ul, .result-text ol {
@@ -863,6 +949,8 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+    
+
   </style>
 </head>
 <body>
@@ -888,11 +976,12 @@
         </button>
         <button class="slim-btn camera-btn" id="captureBtn">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path>
+                  <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path>
                   <circle cx="12" cy="13" r="3"></circle>
                   <path d="M17 8h.01"></path>
                 </svg>
             </button>
+
       </div>
       <div class="close-instruction">
         <span class="shortcut-keys">⌘</span>
@@ -910,6 +999,7 @@
       <div class="transcript-content" id="transcriptContent"></div>
     </div>
     
+
     <div class="overlay-container" id="secondaryOverlay">
     <div id="miniTranscription" class="mini-transcription"></div>
     
@@ -1066,12 +1156,13 @@
     // Function to process action request
     async function processAction(command) {
       showResult('⚡ Processing action request...', 'thinking');
+      const requestBody = { command: command, is_action: true };
       const response = await fetch('http://localhost:8888/command', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ command: command, is_action: true }),
+        body: JSON.stringify(requestBody),
       });
       if (!response.ok) {
         const errorData = await response.json();
@@ -1210,6 +1301,40 @@
     commandInput.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         hideOverlay();
+      }
+    });
+
+    // Handle Command+Arrow keys for moving the overlay window
+    document.addEventListener('keydown', (event) => {
+      // Check if Command key (Meta key on Mac) is pressed with arrow keys
+      if (event.metaKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        event.preventDefault();
+        
+        // Map arrow keys to direction strings
+        let direction;
+        switch (event.key) {
+          case 'ArrowUp':
+            direction = 'up';
+            break;
+          case 'ArrowDown':
+            direction = 'down';
+            break;
+          case 'ArrowLeft':
+            direction = 'left';
+            break;
+          case 'ArrowRight':
+            direction = 'right';
+            break;
+        }
+        
+        // Send IPC message to move the entire window
+        if (ipcRenderer) {
+          ipcRenderer.send('move-overlay-window', direction);
+          console.log(`🎯 Moving overlay window: ${direction}`);
+        } else {
+          // Fallback for environments without Electron API
+          console.log(`🎯 Would move overlay window: ${direction}`);
+        }
       }
     });
 
@@ -1551,16 +1676,17 @@
       
       try {
         // Request transcription of captured audio
+        const requestBody = {
+          audio_data: '', // Backend will capture system audio
+          use_gemini: true,
+          capture_system_audio: true
+        };
         const response = await fetch('http://localhost:8888/transcribe_audio', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            audio_data: '', // Backend will capture system audio
-            use_gemini: true,
-            capture_system_audio: true
-          })
+          body: JSON.stringify(requestBody)
         });
         
         const result = await response.json();
@@ -1962,42 +2088,47 @@
     
     captureBtn.addEventListener('click', async () => {
       hideResult();
-      showActionStatus('📸 Capturing screen and reading text...');
+      
+      // Show progressive status messages
+      showActionStatus('📸 Capturing Screen...');
+      
       try {
-        // Use the capture-and-ocr handler directly which calls the backend
-        const ocrResult = ipcRenderer ? await ipcRenderer.invoke('capture-and-ocr') : { text: 'OCR not available in browser' };
+        // Small delay to show first status
+        await new Promise(resolve => setTimeout(resolve, 500));
         
-        if (ocrResult && ocrResult.success && ocrResult.text) {
-          // Store OCR text globally for ongoing Q&A
-          capturedOCRText = ocrResult.text;
+        showActionStatus('🤖 Consulting with Apx...');
+        
+        // Call the new screenshot analysis endpoint
+        const requestBody = {};
+        const response = await fetch('http://localhost:8888/capture_screenshot', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        });
+        
+        showActionStatus('🧠 Analyzing content...');
+        
+        const result = await response.json();
+        
+        if (result && result.success && result.text) {
+          // Store the analysis result globally for ongoing Q&A
+          capturedOCRText = result.text;
           updateOCRIndicator();
           
-          showResult(`Screen captured and processed. Summarizing content...`, 'thinking');
-          
-          // Automatically analyze the captured content with AI
-          if (ipcRenderer) ipcRenderer.invoke('send-command', `Summarize the following text in one or two sentences: ${ocrResult.text}`)
-            .then(response => {
-              if (response.success) {
-                showResult(`Screen captured and processed. It sees: ${response.result}\n\n💡 You can now ask questions about this captured content!`, 'success', response.is_ai_response || true);
-              } else {
-                showResult(`Screen captured and processed, but summarization failed: ${response.error}\n\n💡 You can still ask questions about this captured content!`, 'error');
-              }
-            })
-            .catch(error => {
-              console.error('Error during AI analysis:', error);
-              showResult(`Screen captured and processed, but summarization failed: ${error.message}\n\n💡 You can still ask questions about this captured content!`, 'error');
-            });
+          showResult(result.text, 'success', true, true);
         } else {
-          const errorMsg = ocrResult && ocrResult.error ? ocrResult.error : 'Unknown OCR error';
-          showResult(`Screen captured but OCR failed: ${errorMsg}`, 'error');
+          const errorMsg = result && result.error ? result.error : 'Unknown analysis error';
+          showResult(`Screen captured but analysis failed: ${errorMsg}`, 'error');
         }
       } catch (error) {
         console.error('Screen capture error:', error);
         showResult(`⚠️ Screen capture error: ${error.message}`, 'error');
       } finally {
-        hideActionStatus();
-      }
-    });
+         hideActionStatus();
+       }
+     });
     
     async function processCommand(command) {
       if (!command || typeof command !== 'string') {
@@ -2278,8 +2409,47 @@
           return `LATEX_INLINE_${index}`;
         });
         
-        // Process Markdown
-        const htmlContent = marked.parse(processedText);
+        // Configure marked with custom renderer for code blocks
+        const renderer = new marked.Renderer();
+        renderer.code = function(code, language) {
+          // Enhanced language detection if not specified
+          if (!language) {
+            if (code.includes('def ') || code.includes('import ') || code.includes('print(') || code.includes('__init__')) {
+              language = 'python';
+            } else if (code.includes('function ') || code.includes('const ') || code.includes('console.log') || code.includes('=>')) {
+              language = 'javascript';
+            } else if (code.includes('#include') || code.includes('int main') || code.includes('std::') || code.includes('cout')) {
+              language = 'cpp';
+            } else if (code.includes('public class') || code.includes('System.out') || code.includes('public static')) {
+              language = 'java';
+            } else if (code.includes('SELECT') || code.includes('FROM') || code.includes('WHERE')) {
+              language = 'sql';
+            } else if (code.includes('<html>') || code.includes('<div>') || code.includes('<!DOCTYPE')) {
+              language = 'html';
+            } else if (code.includes('body {') || code.includes('.class') || code.includes('#id')) {
+              language = 'css';
+            } else if (code.includes('<?php') || code.includes('$_GET') || code.includes('echo ')) {
+              language = 'php';
+            } else if (code.includes('package ') || code.includes('func ') || code.includes('fmt.Print')) {
+              language = 'go';
+            } else if (code.includes('fn ') || code.includes('let mut') || code.includes('println!')) {
+              language = 'rust';
+            }
+          }
+          
+          const validLanguage = language && Prism.languages[language] ? language : 'text';
+          
+          try {
+            const highlightedCode = Prism.highlight(code, Prism.languages[validLanguage], validLanguage);
+            return `<pre class="language-${validLanguage}"><code class="language-${validLanguage}">${highlightedCode}</code></pre>`;
+          } catch (e) {
+            console.warn('Prism highlighting failed for language:', validLanguage, e);
+            return `<pre class="language-text"><code class="language-text">${code}</code></pre>`;
+          }
+        };
+        
+        // Process Markdown with custom renderer
+        const htmlContent = marked.parse(processedText, { renderer });
         
         // Restore LaTeX equations and render them
         let finalContent = htmlContent;
@@ -2356,6 +2526,13 @@
           }
         });
         
+        // Apply syntax highlighting to any remaining code blocks
+        setTimeout(() => {
+          if (typeof Prism !== 'undefined') {
+            Prism.highlightAll();
+          }
+        }, 100);
+        
         return finalContent;
       } catch (error) {
         console.error('Markdown/LaTeX processing error:', error);
@@ -2364,7 +2541,7 @@
       }
     }
     
-    function showResult(text, type = '', isAiResponse = false) {
+    function showResult(text, type = '', isAiResponse = false, isScreenshotResponse = false) {
       console.log('🔍 showResult called with:', { 
         textLength: text.length, 
         textPreview: text.substring(0, 50), 
@@ -2413,9 +2590,9 @@
       resultContainer.style.minHeight = '60px';
       resultContainer.classList.add('show');
 
-      // Show transcript button if it's an AI response
+      // Show transcript button only for screenshot responses
       const transcriptBtn = document.getElementById('transcriptBtn');
-      if (isAiResponse && transcriptBtn) {
+      if (isScreenshotResponse && transcriptBtn) {
         transcriptBtn.style.display = 'block';
       } else if (transcriptBtn) {
         transcriptBtn.style.display = 'none';
@@ -2489,13 +2666,18 @@
     }
     
     function showActionStatus(text) {
+      console.log('🔄 Showing action status:', text);
+      console.log('📍 Action status element:', actionStatus);
       actionStatus.textContent = text;
       actionStatus.className = 'action-status working';
       actionStatus.style.display = 'block';
+      console.log('✅ Action status displayed:', actionStatus.style.display);
     }
     
     function hideActionStatus() {
+      console.log('🔄 Hiding action status');
       actionStatus.style.display = 'none';
+      console.log('✅ Action status hidden:', actionStatus.style.display);
     }
     
     function resizeOverlay(height) {
@@ -2516,11 +2698,11 @@
       const captureBtn = document.getElementById('captureBtn');
       if (capturedOCRText) {
         captureBtn.style.background = 'linear-gradient(135deg, #4CAF50, #45a049)';
-        captureBtn.title = 'OCR content available - Click to capture new content or ask questions about current content';
+        captureBtn.title = 'AI analysis available - Click to capture new content or ask questions about current content';
         captureBtn.innerHTML = '📷✨';
       } else {
         captureBtn.style.background = 'linear-gradient(135deg, #007AFF, #0056CC)';
-        captureBtn.title = 'Capture and read screen text';
+        captureBtn.title = 'Capture screenshot and analyze questions with AI';
         captureBtn.innerHTML = '📷';
       }
     }
@@ -2544,6 +2726,8 @@
         window.close();
       }, 500);
     }
+    
+
     
     // Initialize
     setStatus('ready');

@@ -279,6 +279,8 @@ class CluelyBackend:
                     speaker_change_section = f'\nSpeaker Change Context:\n- Previous speaker: {previous_speaker}\n- New speaker: {new_speaker}\n- Previous speaker\'s content: {speaker_content}\n\n'
                 
                 analysis_prompt = f"""
+Provide direct answers only. After your answer, add 2-3 sentences of brief reasoning or helpful context. For mathematical expressions, use proper LaTeX formatting with $ for inline math and $$ for display math (e.g., $x^2$, $$\\frac{{d}}{{dx}}(x^n) = nx^{{n-1}}$$). Use clear formatting with appropriate markdown for structure, but avoid excessive styling.
+
 You are an AI assistant analyzing a live meeting or conversation. Based on the recent transcript, conversation history, and previous conversation summary, provide helpful insights, answers to questions, or relevant information.
 
 Trigger reason: {trigger_reason}
@@ -416,6 +418,27 @@ Response:"""
                 
             except Exception as e:
                 logger.error(f"Error getting audio setup info: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/capture_screenshot', methods=['POST'])
+        def capture_screenshot():
+            """Capture a screenshot and analyze it with AI to answer questions on screen"""
+            try:
+                # Import screenshot manager
+                from plugins.screenshot_manager import ScreenshotManager
+                screenshot_manager = ScreenshotManager()
+                
+                # Capture screenshot and analyze with AI
+                logger.info("Capturing screenshot and analyzing with AI")
+                result = screenshot_manager.capture_screenshot_and_analyze()
+                
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"Error capturing screenshot: {str(e)}")
                 return jsonify({
                     'success': False,
                     'error': str(e)

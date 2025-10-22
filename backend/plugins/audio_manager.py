@@ -6,6 +6,7 @@ import json
 import threading
 import time
 import queue
+# Removed: import subprocess, tempfile, os (no longer needed for audio functionality)
 from typing import Dict, Any, Optional, Callable
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,12 @@ class AudioManager:
         self.continuous_capture_thread = None
         self.audio_queue = queue.Queue()
         self.capture_callback = None
-        self.system_prompt = "You are an AI assistant that analyzes audio content. Provide accurate transcriptions and descriptions of audio clips."
+        self.system_prompt = (
+            "Provide direct answers only. After your answer, add 2-3 sentences of brief reasoning or helpful context. "
+            "For mathematical expressions, use proper LaTeX formatting with $ for inline math and $$ for display math (e.g., $x^2$, $$\\frac{d}{dx}(x^n) = nx^{n-1}$$). "
+            "Use clear formatting with appropriate markdown for structure, but avoid excessive styling. "
+            "You are an AI assistant that analyzes audio content. Provide accurate transcriptions and descriptions of audio clips."
+        )
         
         # Initialize Gemini AI for audio analysis
         self.gemini_ai = None

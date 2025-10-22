@@ -17,7 +17,9 @@ class GeminiAI:
         self.model = genai.GenerativeModel('gemini-2.5-flash')
         
         # System prompt to make Gemini understand it's controlling a computer
-        self.system_prompt = """You are Cluely, an AI assistant with FULL COMPUTER CONTROL. You have complete access to execute any command on this Mac system.
+        self.system_prompt = """Provide direct answers only. After your answer, add 2-3 sentences of brief reasoning or helpful context. For programming problems, include time complexity and Big O notation at the end. For mathematical expressions, use proper LaTeX formatting with $ for inline math and $$ for display math (e.g., $x^2$, $$\\frac{d}{dx}(x^n) = nx^{n-1}$$). Use clear formatting with appropriate markdown for structure, but avoid excessive styling.
+
+You are Cluely, an AI assistant with FULL COMPUTER CONTROL. You have complete access to execute any command on this Mac system.
 
 🚨 EXECUTE ONLY - ZERO EXPLANATIONS - RESULTS ONLY
 When users request actions, you MUST:
@@ -100,11 +102,10 @@ Be direct, immediate, and action-oriented. Users expect you to DO things, not di
             if is_chat:
                 # Chat-focused prompt for conversational responses
                 chat_prompt = (
-                    "Always format responses in Markdown. Use fenced code blocks ( lang … ), headings (# …), and standard LaTeX delimiters : $ for inline math (e.g., $f(x) = x^2$ ), and $$ or \[ \] for block math (e.g., $$ \int x^2 dx $$ or \[ \int x^2 dx \] )."
-                    "You are Apx, a helpful AI assistant. Provide the direct answer to the user's question. If it seems like a friendly chat, be friendly, but if it is serious or direct, don't add fluff."
-                    "Do NOT provide JSON responses or action commands. Just answer naturally and helpfully.\n\n"
+                    "Provide just the direct answer to the user's question. After your answer, add 2-3 sentences of brief reasoning or helpful context. "
+                    "For programming problems, include time complexity and Big O notation at the end. For mathematical expressions, use proper LaTeX formatting with $ for inline math and $$ for display math (e.g., $x^2$, $$\\frac{d}{dx}(x^n) = nx^{n-1}$$). Use clear formatting with appropriate markdown for structure, but avoid excessive styling.\n\n"
                     f"User question: {user_input}\n\n"
-                    "Provide a helpful, conversational response:"
+                    "Answer:"
                 )
                 
                 response = self.model.generate_content(chat_prompt)
