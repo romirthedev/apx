@@ -409,22 +409,33 @@
         const latexBlocks = [];
         const latexInline = [];
         
-        // Extract display math ($$...$$ or \[...\])
-        let processedText = text.replace(/\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]/g, (match, eq1, eq2) => {
-          const equation = eq1 || eq2;
-          console.log('📐 Found display math equation:', equation.trim());
-          const index = latexBlocks.length;
-          latexBlocks.push(equation.trim());
-          return `LATEX_BLOCK_${index}`;
-        });
-        
-        // Extract inline math ($...$) - allow multi-line expressions
-        processedText = processedText.replace(/\$([^$]+?)\$/g, (match, equation) => {
-          console.log('📏 Found inline math equation:', equation.trim());
-          const index = latexInline.length;
-          latexInline.push(equation.trim());
-          return `LATEX_INLINE_${index}`;
-        });
+        // Extract display math ($$...$$ or \[...\]) - improved regex
+         let processedText = text.replace(/\$\$([\s\S]*?)\$\$|\\\[([\s\S]*?)\\\]/g, (match, eq1, eq2) => {
+           const equation = (eq1 || eq2).trim();
+           if (equation) {
+             console.log('📐 Found display math equation:', equation);
+             const index = latexBlocks.length;
+             latexBlocks.push(equation);
+             return `LATEX_BLOCK_${index}`;
+           }
+           return match;
+         });
+         
+         // Extract inline math ($...$) - improved to avoid conflicts with display math
+         processedText = processedText.replace(/\$([^$\n]+?)\$/g, (match, equation) => {
+           // Skip if this is part of display math (already processed)
+           if (match.includes('LATEX_BLOCK_')) {
+             return match;
+           }
+           const trimmedEq = equation.trim();
+           if (trimmedEq) {
+             console.log('📏 Found inline math equation:', trimmedEq);
+             const index = latexInline.length;
+             latexInline.push(trimmedEq);
+             return `LATEX_INLINE_${index}`;
+           }
+           return match;
+         });
         
         // Configure marked with custom renderer for code blocks
         const renderer = new marked.Renderer();
@@ -458,18 +469,26 @@
           latexBlocks.forEach((equation, index) => {
             try {
               const rendered = katex.renderToString(equation, {
-                displayMode: true,
-                throwOnError: false,
-                strict: false,
-                trust: true,
-                macros: {
-                  "\\RR": "\\mathbb{R}",
-                  "\\NN": "\\mathbb{N}",
-                  "\\ZZ": "\\mathbb{Z}",
-                  "\\QQ": "\\mathbb{Q}",
-                  "\\CC": "\\mathbb{C}"
-                }
-              });
+                    displayMode: true,
+                    throwOnError: false,
+                    strict: 'ignore',
+                    trust: true,
+                    fleqn: false,
+                    macros: {
+                      "\\RR": "\\mathbb{R}",
+                      "\\NN": "\\mathbb{N}",
+                      "\\ZZ": "\\mathbb{Z}",
+                      "\\QQ": "\\mathbb{Q}",
+                      "\\CC": "\\mathbb{C}",
+                      "\\FF": "\\mathbb{F}",
+                      "\\PP": "\\mathbb{P}",
+                      "\\HH": "\\mathbb{H}",
+                      "\\implies": "\\Rightarrow",
+                      "\\iff": "\\Leftrightarrow",
+                      "\\eps": "\\epsilon",
+                      "\\veps": "\\varepsilon"
+                    }
+                  });
               finalContent = finalContent.replace(`LATEX_BLOCK_${index}`, rendered);
             } catch (e) {
               console.error('LaTeX rendering error for block equation:', equation, 'Error:', e);
@@ -481,18 +500,25 @@
           latexInline.forEach((equation, index) => {
             try {
               const rendered = katex.renderToString(equation, {
-                displayMode: false,
-                throwOnError: false,
-                strict: false,
-                trust: true,
-                macros: {
-                  "\\RR": "\\mathbb{R}",
-                  "\\NN": "\\mathbb{N}",
-                  "\\ZZ": "\\mathbb{Z}",
-                  "\\QQ": "\\mathbb{Q}",
-                  "\\CC": "\\mathbb{C}"
-                }
-              });
+                    displayMode: false,
+                    throwOnError: false,
+                    strict: 'ignore',
+                    trust: true,
+                    macros: {
+                      "\\RR": "\\mathbb{R}",
+                      "\\NN": "\\mathbb{N}",
+                      "\\ZZ": "\\mathbb{Z}",
+                      "\\QQ": "\\mathbb{Q}",
+                      "\\CC": "\\mathbb{C}",
+                      "\\FF": "\\mathbb{F}",
+                      "\\PP": "\\mathbb{P}",
+                      "\\HH": "\\mathbb{H}",
+                      "\\implies": "\\Rightarrow",
+                      "\\iff": "\\Leftrightarrow",
+                      "\\eps": "\\epsilon",
+                      "\\veps": "\\varepsilon"
+                    }
+                  });
               finalContent = finalContent.replace(`LATEX_INLINE_${index}`, rendered);
             } catch (e) {
               console.error('LaTeX rendering error for inline equation:', equation, 'Error:', e);

@@ -100,13 +100,26 @@ Be direct, immediate, and action-oriented. Users expect you to DO things, not di
         try:
             # Use different prompts for chat vs command responses
             if is_chat:
-                # Chat-focused prompt for conversational responses
-                chat_prompt = (
-                    "Provide just the direct answer to the user's question. After your answer, add 2-3 sentences of brief reasoning or helpful context. "
-                    "For programming problems, include time complexity and Big O notation at the end. For mathematical expressions, use proper LaTeX formatting with $ for inline math and $$ for display math (e.g., $x^2$, $$\\frac{d}{dx}(x^n) = nx^{n-1}$$). Use clear formatting with appropriate markdown for structure, but avoid excessive styling.\n\n"
-                    f"User question: {user_input}\n\n"
-                    "Answer:"
-                )
+                # Build conversation history for context
+                conversation_history = []
+                if context:
+                    for item in context[-5:]:  # Last 5 interactions for context
+                        conversation_history.append(f"User: {item.get('command', '')}")
+                        conversation_history.append(f"Assistant: {item.get('result', '')}")
+                
+                # Chat-focused prompt for conversational responses with context
+                chat_prompt_parts = [
+                    "You are a helpful AI assistant. Provide direct answers to user questions with brief reasoning or helpful context. "
+                    "For programming problems, include time complexity and Big O notation at the end. "
+                    "For mathematical expressions, use proper LaTeX formatting with $ for inline math and $$ for display math (e.g., $x^2$, $$\\frac{d}{dx}(x^n) = nx^{n-1}$$). "
+                    "Use clear formatting with appropriate markdown for structure, but avoid excessive styling.\n"
+                ]
+                
+                if conversation_history:
+                    chat_prompt_parts.append(f"\nRecent conversation context:\n" + "\n".join(conversation_history) + "\n")
+                
+                chat_prompt_parts.append(f"\nUser question: {user_input}\n\nAnswer:")
+                chat_prompt = "".join(chat_prompt_parts)
                 
                 response = self.model.generate_content(chat_prompt)
                 return {

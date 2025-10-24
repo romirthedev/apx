@@ -161,10 +161,7 @@
                     // Clear input
                     input.value = '';
                     
-                    // Auto-hide after delay
-                    setTimeout(() => {
-                        window.close();
-                    }, 8000);
+                    // Overlay will remain open until manually closed by user
                 } else {
                     setStatus('error');
                     showResult(`❌ ${response.error || response.result || 'Command failed'}`, 'error');

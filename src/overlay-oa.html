@@ -370,11 +370,7 @@
       responseBox.innerHTML = formattedContent;
       showOverlay();
       
-      // Set auto-hide timer (longer for successful responses)
-      const hideDelay = type === 'error' ? 10000 : 20000;
-      autoHideTimeout = setTimeout(() => {
-        hideOverlay();
-      }, hideDelay);
+      // Overlay will remain open until manually closed by user
     };
 
     // Handle command submission

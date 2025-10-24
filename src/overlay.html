@@ -430,20 +430,7 @@
                     // Clear input after successful command
                     commandInput.value = '';
                     
-                    // Don't auto-hide - let user read the response
-                    console.log('⏰ Setting auto-hide timer...');
-                    const hideDelay = isAiResponse ? 20000 : 15000; // Even longer delays
-                    console.log(`⏰ Will auto-hide in ${hideDelay}ms`);
-                    
-                    // Clear any existing timeout
-                    if (window.autoHideTimeout) {
-                        clearTimeout(window.autoHideTimeout);
-                    }
-                    
-                    window.autoHideTimeout = setTimeout(() => {
-                        console.log('⏰ Auto-hide timer triggered');
-                        hideOverlay();
-                    }, hideDelay);
+                    // Overlay will remain open until manually closed by user
                 } else {
                     setStatus('error');
                     hideActionStatus();
@@ -579,21 +566,32 @@
             const latexBlocks = [];
             const latexInline = [];
             
-            // Extract display math ($$...$$ or \[...\])
-            let processedText = text.replace(/\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]/g, (match, eq1, eq2) => {
-              const equation = eq1 || eq2;
-              console.log('📐 Found display math equation:', equation.trim());
-              const index = latexBlocks.length;
-              latexBlocks.push(equation.trim());
-              return `LATEX_BLOCK_${index}`;
+            // Extract display math ($$...$$ or \[...\]) - improved regex
+            let processedText = text.replace(/\$\$([\s\S]*?)\$\$|\\\[([\s\S]*?)\\\]/g, (match, eq1, eq2) => {
+              const equation = (eq1 || eq2).trim();
+              if (equation) {
+                console.log('📐 Found display math equation:', equation);
+                const index = latexBlocks.length;
+                latexBlocks.push(equation);
+                return `LATEX_BLOCK_${index}`;
+              }
+              return match;
             });
             
-            // Extract inline math ($...$) - allow multi-line expressions
-            processedText = processedText.replace(/\$([^$]+?)\$/g, (match, equation) => {
-              console.log('📏 Found inline math equation:', equation.trim());
-              const index = latexInline.length;
-              latexInline.push(equation.trim());
-              return `LATEX_INLINE_${index}`;
+            // Extract inline math ($...$) - improved to avoid conflicts with display math
+            processedText = processedText.replace(/\$([^$\n]+?)\$/g, (match, equation) => {
+              // Skip if this is part of display math (already processed)
+              if (match.includes('LATEX_BLOCK_')) {
+                return match;
+              }
+              const trimmedEq = equation.trim();
+              if (trimmedEq) {
+                console.log('📏 Found inline math equation:', trimmedEq);
+                const index = latexInline.length;
+                latexInline.push(trimmedEq);
+                return `LATEX_INLINE_${index}`;
+              }
+              return match;
             });
             
             // Configure marked with custom renderer for code blocks
@@ -630,14 +628,22 @@
                   const rendered = katex.renderToString(equation, {
                     displayMode: true,
                     throwOnError: false,
-                    strict: false,
+                    strict: 'ignore',
                     trust: true,
+                    fleqn: false,
                     macros: {
                       "\\RR": "\\mathbb{R}",
                       "\\NN": "\\mathbb{N}",
                       "\\ZZ": "\\mathbb{Z}",
                       "\\QQ": "\\mathbb{Q}",
-                      "\\CC": "\\mathbb{C}"
+                      "\\CC": "\\mathbb{C}",
+                      "\\FF": "\\mathbb{F}",
+                      "\\PP": "\\mathbb{P}",
+                      "\\HH": "\\mathbb{H}",
+                      "\\implies": "\\Rightarrow",
+                      "\\iff": "\\Leftrightarrow",
+                      "\\eps": "\\epsilon",
+                      "\\veps": "\\varepsilon"
                     }
                   });
                   finalContent = finalContent.replace(`LATEX_BLOCK_${index}`, rendered);
@@ -653,14 +659,21 @@
                   const rendered = katex.renderToString(equation, {
                     displayMode: false,
                     throwOnError: false,
-                    strict: false,
+                    strict: 'ignore',
                     trust: true,
                     macros: {
                       "\\RR": "\\mathbb{R}",
                       "\\NN": "\\mathbb{N}",
                       "\\ZZ": "\\mathbb{Z}",
                       "\\QQ": "\\mathbb{Q}",
-                      "\\CC": "\\mathbb{C}"
+                      "\\CC": "\\mathbb{C}",
+                      "\\FF": "\\mathbb{F}",
+                      "\\PP": "\\mathbb{P}",
+                      "\\HH": "\\mathbb{H}",
+                      "\\implies": "\\Rightarrow",
+                      "\\iff": "\\Leftrightarrow",
+                      "\\eps": "\\epsilon",
+                      "\\veps": "\\varepsilon"
                     }
                   });
                   finalContent = finalContent.replace(`LATEX_INLINE_${index}`, rendered);
@@ -736,6 +749,13 @@
                 window.close();
             }, 500);
         }
+        
+        // Listen for context refresh events
+        ipcRenderer.on('context-refreshed', () => {
+            console.log('🔄 Context refreshed - overlay notified');
+            // You can add visual feedback here if needed
+            // For example, briefly show a notification or update UI
+        });
         
         // Initialize
         setStatus('ready');

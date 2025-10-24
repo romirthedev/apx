@@ -368,7 +368,30 @@ function registerGlobalShortcuts() {
     });
   });
   
-  console.log(`Global shortcut registered: ${shortcut}`);
+  // Register Cmd+R shortcut for context refresh
+  const refreshShortcut = process.platform === 'darwin' ? 'Cmd+R' : 'Ctrl+R';
+  
+  globalShortcut.register(refreshShortcut, () => {
+    console.log('🔄 Context refresh triggered via Cmd+R');
+    // Clear local context storage
+    store.set('context', []);
+    
+    // Notify backend to refresh context
+    axios.post(`${BACKEND_URL}/refresh_context`, {}, {
+      timeout: 5000,
+      family: 4
+    }).then(() => {
+      console.log('✅ Context refreshed successfully');
+      // Notify overlay about context refresh
+      safeOverlayOperation((overlay) => {
+        overlay.webContents.send('context-refreshed');
+      });
+    }).catch((error) => {
+      console.error('❌ Error refreshing context:', error);
+    });
+  });
+  
+  console.log(`Global shortcuts registered: ${shortcut}, ${refreshShortcut}`);
 }
 
 function resolvePythonExecutable() {

@@ -72,6 +72,9 @@ class CluelyBackend:
         # Context storage for conversation continuity
         self.context_storage: Dict[str, List[Dict]] = {}
         
+        # Persistent context that survives mode switches (only cleared on explicit refresh)
+        self.persistent_context: List[Dict] = []
+        
         # Storage for latest audio chunk and transcription from continuous capture
         self.latest_audio_chunk = None
         self.latest_transcription = None
@@ -301,11 +304,11 @@ Conversation history (recent):
 
 Response:"""
                 
-                # Use Gemini AI for analysis
+                # Use Gemini AI for analysis with persistent context
                 if self.gemini_ai:
                     ai_response = self.gemini_ai.generate_response(
                         user_input=analysis_prompt,
-                        context=[],
+                        context=self.persistent_context,  # Use persistent context for cross-mode continuity
                         available_actions=[],
                         is_chat=True
                     )
@@ -449,12 +452,25 @@ Response:"""
             try:
                 data = request.get_json() or {}
                 command = data.get('command', '').strip()
-                context = data.get('context', [])
+                incoming_context = data.get('context', [])
                 action_mode = data.get('action_mode', False) or data.get('is_action', False)
                 
-                # Ensure context is always a list
-                if not isinstance(context, list):
-                    context = []
+                # Ensure incoming context is always a list
+                if not isinstance(incoming_context, list):
+                    incoming_context = []
+                
+                # Use persistent context that survives mode switches
+                # Only merge new items from incoming context that aren't already in persistent context
+                for item in incoming_context:
+                    if item not in self.persistent_context:
+                        self.persistent_context.append(item)
+                
+                # Keep only the last 10 items in persistent context
+                if len(self.persistent_context) > 10:
+                    self.persistent_context = self.persistent_context[-10:]
+                
+                # Use persistent context for processing
+                context = self.persistent_context.copy()
                 
                 if not command:
                     return jsonify({
@@ -532,7 +548,7 @@ Response:"""
                 # Log the result for debugging
                 logger.info(f"Command result: success={result.get('success')}, method={result.get('metadata', {}).get('method')}")
                 
-                # Update context
+                # Update persistent context
                 new_context_item = {
                     'timestamp': datetime.now().isoformat(),
                     'command': command,
@@ -540,10 +556,13 @@ Response:"""
                     'success': result.get('success', False)
                 }
                 
-                # Keep only last 10 context items
-                context.append(new_context_item)
-                if len(context) > 10:
-                    context = context[-10:]
+                # Add to persistent context and keep only last 10 items
+                self.persistent_context.append(new_context_item)
+                if len(self.persistent_context) > 10:
+                    self.persistent_context = self.persistent_context[-10:]
+                
+                # Update local context for response
+                context = self.persistent_context.copy()
                 
                 # Log the action
                 self.action_logger.log_action(
@@ -591,7 +610,10 @@ Response:"""
                 cache_key = data.get('cache_key', '')
                 confirmed = data.get('confirmed', False)
                 original_command = data.get('original_command', '')
-                context = data.get('context', [])
+                incoming_context = data.get('context', [])
+                
+                # Use persistent context instead of incoming context
+                context = self.persistent_context.copy()
                 
                 if not cache_key or not original_command:
                     return jsonify({
@@ -610,7 +632,7 @@ Response:"""
                 # Log the result
                 logger.info(f"Confirmed command result: success={result.get('success')}")
                 
-                # Update context if command was executed
+                # Update persistent context if command was executed
                 if confirmed and result.get('success'):
                     new_context_item = {
                         'timestamp': datetime.now().isoformat(),
@@ -619,9 +641,13 @@ Response:"""
                         'success': result.get('success', False)
                     }
                     
-                    context.append(new_context_item)
-                    if len(context) > 10:
-                        context = context[-10:]
+                    # Add to persistent context and keep only last 10 items
+                    self.persistent_context.append(new_context_item)
+                    if len(self.persistent_context) > 10:
+                        self.persistent_context = self.persistent_context[-10:]
+                    
+                    # Update local context for response
+                    context = self.persistent_context.copy()
                     
                     # Log the action
                     self.action_logger.log_action(
@@ -663,6 +689,19 @@ Response:"""
                 self.context_storage[session_id] = []
                 return jsonify({'success': True})
             except Exception as e:
+                return jsonify({'success': False, 'error': str(e)})
+        
+        @self.app.route('/refresh_context', methods=['POST'])
+        def refresh_context():
+            try:
+                # Clear the persistent context (only happens on Cmd+R)
+                self.persistent_context = []
+                # Also clear all session-based context storage
+                self.context_storage = {}
+                logger.info("Context refreshed via Cmd+R")
+                return jsonify({'success': True, 'message': 'Context refreshed successfully'})
+            except Exception as e:
+                logger.error(f"Error refreshing context: {str(e)}")
                 return jsonify({'success': False, 'error': str(e)})
         
         @self.app.route('/logs', methods=['GET'])
