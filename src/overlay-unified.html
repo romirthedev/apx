@@ -960,6 +960,12 @@
         <button class="slim-btn" id="chatBtn">Chat</button>
         <button class="slim-btn" id="actionBtn">Action</button>
         <button class="slim-btn" id="webSearchBtn">Web Search</button>
+        <button class="slim-btn" id="voiceInputBtn" title="Press to speak command">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path d="M17 16.91c-1.48 1.46-3.51 2.36-5.77 2.36-2.26 0-4.29-.9-5.77-2.36l-1.1 1.1c1.86 1.86 4.41 3 7.07 3 2.66 0 5.21-1.14 7.07-3l-1.1-1.1zM20 9h-1.7c0 .74-.16 1.43-.43 2.05l1.3 1.3c.64-1.21 1-2.6 1-4.05z"/>
+          </svg>
+        </button>
         <button class="slim-btn play-btn" id="meetingBtn">
           <svg class="play-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5v14l11-7z"/>
@@ -1055,6 +1061,7 @@
     const transcriptionBtn = document.getElementById('transcriptionBtn');
     const meetingBtn = document.getElementById('meetingBtn');
     const actionBtn = document.getElementById('actionBtn');
+    const voiceInputBtn = document.getElementById('voiceInputBtn');
 
     let isProcessing = false;
     let currentResponse = '';
@@ -2777,6 +2784,157 @@
         opacity: window.getComputedStyle(document.querySelector('.overlay-container')).opacity
       });
     });
+
+    // ===== VOICE INPUT FUNCTIONALITY =====
+    // Speech Recognition state variables
+    let isListeningForVoice = false;
+    let voiceRecognition = null;
+    let voiceInterimTranscript = '';
+    let voiceFinalTranscript = '';
+    
+    // Initialize Web Speech API
+    function initializeVoiceRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      
+      if (!SpeechRecognition) {
+        console.warn('⚠️ Speech Recognition API not supported in this browser');
+        return null;
+      }
+      
+      const recognition = new SpeechRecognition();
+      
+      // Configuration
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.language = 'en-US';
+      
+      // Events
+      recognition.onstart = () => {
+        console.log('🎤 Voice input started');
+        isListeningForVoice = true;
+        voiceInputBtn.classList.add('active');
+        commandInput.placeholder = '🎤 Listening...';
+        showActionStatus('🎤 Listening for your command...');
+      };
+      
+      recognition.onend = () => {
+        console.log('🎤 Voice input ended');
+        isListeningForVoice = false;
+        voiceInputBtn.classList.remove('active');
+        commandInput.placeholder = 'Ask me anything...';
+        hideActionStatus();
+        
+        // If we have a final transcript, put it in the input
+        if (voiceFinalTranscript) {
+          commandInput.value = voiceFinalTranscript;
+          sendBtn.disabled = false;
+          // Optionally auto-send the voice command
+          // Uncomment the line below to auto-execute voice commands
+          // processUserInput();
+        }
+      };
+      
+      recognition.onresult = (event) => {
+        voiceInterimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          
+          if (event.results[i].isFinal) {
+            voiceFinalTranscript += transcript + ' ';
+          } else {
+            voiceInterimTranscript += transcript;
+          }
+        }
+        
+        // Update the input field with real-time feedback
+        const displayText = voiceFinalTranscript + voiceInterimTranscript;
+        commandInput.value = displayText;
+        
+        // Show status update
+        if (voiceInterimTranscript) {
+          showActionStatus(`🎤 Heard: "${voiceInterimTranscript}..."`);
+        }
+        
+        console.log(`📝 Transcript: Final="${voiceFinalTranscript}" Interim="${voiceInterimTranscript}"`);
+      };
+      
+      recognition.onerror = (event) => {
+        console.error('❌ Voice recognition error:', event.error);
+        hideActionStatus();
+        
+        let errorMessage = 'Voice input error: ' + event.error;
+        switch (event.error) {
+          case 'no-speech':
+            errorMessage = '❌ No speech detected. Please try again and speak clearly.';
+            break;
+          case 'audio-capture':
+            errorMessage = '❌ No microphone found or access denied.';
+            break;
+          case 'not-allowed':
+            errorMessage = '❌ Microphone permission denied. Please allow microphone access.';
+            break;
+          case 'network':
+            errorMessage = '❌ Network error. Check your internet connection.';
+            break;
+        }
+        
+        showResult(errorMessage, 'error');
+        isListeningForVoice = false;
+        voiceInputBtn.classList.remove('active');
+      };
+      
+      return recognition;
+    }
+    
+    // Toggle voice input on/off
+    async function toggleVoiceInput() {
+      if (!voiceRecognition) {
+        voiceRecognition = initializeVoiceRecognition();
+        if (!voiceRecognition) {
+          showResult('❌ Speech Recognition not supported on this browser. Please try Chrome, Edge, or Safari.', 'error');
+          return;
+        }
+      }
+      
+      if (isListeningForVoice) {
+        // Stop listening
+        console.log('🛑 Stopping voice input');
+        voiceRecognition.stop();
+        voiceFinalTranscript = '';
+        voiceInterimTranscript = '';
+      } else {
+        // Start listening
+        console.log('▶️ Starting voice input');
+        voiceFinalTranscript = '';
+        voiceInterimTranscript = '';
+        
+        try {
+          voiceRecognition.start();
+        } catch (error) {
+          console.warn('Error starting speech recognition:', error);
+          // Ignore the error - it's usually because recognition is already running
+        }
+      }
+    }
+    
+    // Voice Input Button Event Listener
+    voiceInputBtn.addEventListener('click', toggleVoiceInput);
+    
+    // Allow voice input with keyboard shortcut (Alt+V)
+    document.addEventListener('keydown', (event) => {
+      if (event.altKey && event.key === 'v') {
+        event.preventDefault();
+        console.log('⌨️ Voice input triggered via Alt+V');
+        toggleVoiceInput();
+      }
+    });
+    
+    // ===== END VOICE INPUT FUNCTIONALITY =====
+
+    
+    // New Real-Time Meeting Mode Implementation
+    const overlayContainer = document.querySelector('.overlay-container');
   </script>
 </body>
 </html>

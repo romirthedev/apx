@@ -14,6 +14,13 @@ Apx is a cross-platform desktop AI assistant that provides instant, always-avail
 - Context-aware follow-up queries
 - Intelligent command interpretation
 
+### 🎤 Voice Input Support (NEW!)
+- Click the microphone button or press `Alt+V` to start voice input
+- Real-time speech-to-text transcription
+- Automatic command execution from voice input
+- Supports multiple languages
+- Works with any microphone device
+
 ### 💻 Full Local Control
 - Browse, read, edit, delete, and create files/folders
 - Launch and control installed applications
@@ -183,7 +190,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## 🗺️ Roadmap
 
 ### Upcoming Features
-- [ ] Voice command support
+- [x] Voice command support
 - [ ] Custom plugin marketplace
 - [ ] Team collaboration features
 - [ ] Advanced automation workflows
@@ -196,7 +203,16 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [ ] macOS Shortcuts integration
 - [ ] Chrome extension companion
 
-# How to Start
+## Voice Input Usage
+
+To use voice input, click the microphone button in the overlay or press `Alt+V` on your keyboard. The app will:
+
+1. Start listening for your voice command
+2. Transcribe your speech to text
+3. Interpret the text command
+4. Execute the command
+
+## How to Start
 ## For Backend
 ### cd /Users/romirpatel/apx && pkill -f electron || true; pkill -f backend/main.py || true; sleep 1; npm run dev --silent
 ## For Frontend, if backend works
