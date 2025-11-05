@@ -1,1 +1,1 @@
-# Core modules for Cluely backend
+# Core modules for Apex backend

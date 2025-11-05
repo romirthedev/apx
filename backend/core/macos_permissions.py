@@ -37,7 +37,7 @@ class MacOSPermissionsManager:
                 results['missing'].append('Full Disk Access')
                 results['instructions'].append(
                     "1. Open System Settings → Privacy & Security → Full Disk Access"
-                    "2. Click the '+' button and add Cluely"
+                    "2. Click the '+' button and add Apex"
                 )
             
             # Check Accessibility
@@ -48,7 +48,7 @@ class MacOSPermissionsManager:
                 results['missing'].append('Accessibility')
                 results['instructions'].append(
                     "1. Open System Settings → Privacy & Security → Accessibility"
-                    "2. Click the '+' button and add Cluely"
+                    "2. Click the '+' button and add Apex"
                 )
             
             # Check Screen Recording
@@ -59,7 +59,7 @@ class MacOSPermissionsManager:
                 results['missing'].append('Screen Recording')
                 results['instructions'].append(
                     "1. Open System Settings → Privacy & Security → Screen Recording"
-                    "2. Check the box next to Cluely"
+                    "2. Check the box next to Apex"
                 )
             
             # Check Automation
@@ -70,7 +70,7 @@ class MacOSPermissionsManager:
                 results['missing'].append('Automation')
                 results['instructions'].append(
                     "1. Open System Settings → Privacy & Security → Automation"
-                    "2. Allow Cluely to control other applications"
+                    "2. Allow Apex to control other applications"
                 )
             
             return results
@@ -145,14 +145,14 @@ class MacOSPermissionsManager:
         try:
             # Try to take a screenshot
             result = subprocess.run(
-                ['screencapture', '-t', 'png', '/tmp/cluely_test_screenshot.png'],
+                ['screencapture', '-t', 'png', '/tmp/apex_test_screenshot.png'],
                 capture_output=True,
                 timeout=5
             )
             
             # Clean up test file
             try:
-                os.remove('/tmp/cluely_test_screenshot.png')
+                os.remove('/tmp/apex_test_screenshot.png')
             except:
                 pass
             
@@ -197,10 +197,10 @@ class MacOSPermissionsManager:
                 return "✅ All required permissions are already granted!"
             
             instructions = [
-                "🔐 CLUELY REQUIRES SYSTEM PERMISSIONS",
+                "🔐 APEX REQUIRES SYSTEM PERMISSIONS",
                 "=" * 50,
                 "",
-                "For full computer control, Cluely needs these macOS permissions:",
+                "For full computer control, Apex needs these macOS permissions:",
                 ""
             ]
             
@@ -210,12 +210,12 @@ class MacOSPermissionsManager:
             
             instructions.extend([
                 "⚠️  IMPORTANT SECURITY NOTES:",
-                "• These permissions give Cluely full control over your Mac",
+                "• These permissions give Apex full control over your Mac",
                 "• All actions are logged for security",
                 "• You can revoke permissions anytime in System Settings",
-                "• Cluely uses AI to understand commands safely",
+                "• Apex uses AI to understand commands safely",
                 "",
-                "🔄 After granting permissions, restart Cluely for changes to take effect."
+                "🔄 After granting permissions, restart Apex for changes to take effect."
             ])
             
             return "\\n".join(instructions)
@@ -268,7 +268,7 @@ class MacOSPermissionsManager:
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.cluely.daemon</string>
+    <string>com.apex.daemon</string>
     <key>ProgramArguments</key>
     <array>
         <string>{os.path.abspath(__file__)}</string>
@@ -282,7 +282,7 @@ class MacOSPermissionsManager:
 </dict>
 </plist>'''
             
-            daemon_path = os.path.expanduser("~/Library/LaunchAgents/com.cluely.daemon.plist")
+            daemon_path = os.path.expanduser("~/Library/LaunchAgents/com.apex.daemon.plist")
             os.makedirs(os.path.dirname(daemon_path), exist_ok=True)
             
             with open(daemon_path, 'w') as f:

@@ -101,9 +101,9 @@ function createOverlayWindow() {
     transparent: true,
     show: false,
     focusable: true,
-    hasShadow: true,
+    hasShadow: false,
     type: 'panel', // Makes it a floating panel
-    visualEffectState: 'active', // Enables vibrancy effect
+    visualEffectState: 'inactive', // Disable vibrancy to prevent edge aliasing
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -588,11 +588,15 @@ ipcMain.handle('send-command', async (event, command) => {
     }
     
     const responseData = response.data;
-    if (responseData.response_type === 'chat') {
-      overlayWindow.webContents.send('overlay-chat-response', responseData);
-    } else if (responseData.response_type === 'action') {
-      overlayWindow.webContents.send('overlay-action-response', responseData);
-    }
+    
+    // Log the response for debugging
+    console.log('Returning response to overlay:', {
+      success: responseData.success,
+      result: responseData.result ? responseData.result.substring(0, 100) + '...' : 'No result',
+      response_type: responseData.response_type,
+      is_ai_response: responseData.is_ai_response
+    });
+    
     return responseData;
   } catch (error) {
     console.error('Error sending command to backend:', error);
@@ -685,6 +689,16 @@ ipcMain.handle('save-settings', (event, settings) => {
 ipcMain.handle('clear-context', () => {
   store.set('context', []);
   return true;
+});
+
+// Provide backend URL to overlay via IPC so it can align ports reliably
+ipcMain.handle('get-backend-url', () => {
+  try {
+    return BACKEND_URL;
+  } catch (e) {
+    console.error('Error retrieving BACKEND_URL:', e);
+    return null;
+  }
 });
 
 // Handle overlay resizing

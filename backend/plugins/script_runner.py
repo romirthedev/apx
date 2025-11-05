@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class ScriptRunner:
     def __init__(self):
-        self.temp_dir = Path(tempfile.gettempdir()) / 'cluely_scripts'
+        self.temp_dir = Path(tempfile.gettempdir()) / 'apex_scripts'
         self.temp_dir.mkdir(exist_ok=True)
         
         # Security: List of allowed script extensions

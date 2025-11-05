@@ -216,7 +216,7 @@ class DocumentManager:
     <h1>{filename.replace('.pdf', '')}</h1>
     <div class="content">
         <p><strong>Created:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        <p>{content or 'This document was created by Cluely.'}</p>
+        <p>{content or 'This document was created by Apex.'}</p>
     </div>
 </body>
 </html>

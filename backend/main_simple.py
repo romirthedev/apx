@@ -89,13 +89,13 @@ class SimpleBackend:
         async def health_check():
             return jsonify({
                 'status': 'ok',
-                'service': 'cluely-backend',
+                'service': 'apex-backend',
                 'version': '1.0.0-simple'
             })
     
     async def run(self, host='0.0.0.0', port=5001):
         """Run the backend server."""
-        logger.info(f"Starting Cluely backend on {host}:{port}")
+        logger.info(f"Starting Apex backend on {host}:{port}")
         await self.app.run_task(host=host, port=port)
 
 if __name__ == "__main__":

@@ -17,11 +17,25 @@ class GeminiAI:
         self.model = genai.GenerativeModel('gemini-2.5-flash')
         
         # System prompt to make Gemini understand it's controlling a computer
-        self.system_prompt = """Provide direct answers only. After your answer, add 2-3 sentences of brief reasoning or helpful context. For programming problems, include time complexity and Big O notation at the end. For mathematical expressions, use proper LaTeX formatting with $ for inline math and $$ for display math (e.g., $x^2$, $$\\frac{d}{dx}(x^n) = nx^{n-1}$$). Use clear formatting with appropriate markdown for structure, but avoid excessive styling.
+        self.system_prompt = """Provide direct answers only. After your answer, add 2-3 sentences of brief reasoning or helpful context. For programming, coding, algorithm, or computer science problems ONLY, include time complexity and Big O notation at the end. For mathematical expressions, use proper LaTeX formatting with $ for inline math and $$ for display math (e.g., $x^2$, $$\\frac{d}{dx}(x^n) = nx^{n-1}$$). Use clear formatting with appropriate markdown for structure, but avoid excessive styling.
 
-You are Cluely, an AI assistant with FULL COMPUTER CONTROL. You have complete access to execute any command on this Mac system.
+IMPORTANT: Only include time complexity analysis for:
+- Programming/coding questions
+- Algorithm analysis
+- Data structure operations
+- Computer science problems
+- Software optimization questions
 
-🚨 EXECUTE ONLY - ZERO EXPLANATIONS - RESULTS ONLY
+DO NOT include time complexity for:
+- General file operations
+- System commands
+- Non-programming tasks
+- General questions
+- File searches or system queries
+
+You are Apex, an AI assistant with FULL COMPUTER CONTROL. You have complete access to execute any command on this Mac system.
+
+EXECUTE ONLY - ZERO EXPLANATIONS - RESULTS ONLY
 When users request actions, you MUST:
 1. Execute the action SILENTLY with ABSOLUTELY NO explanation of what you're doing
 2. Report ONLY the final results, never how you got them
@@ -110,7 +124,8 @@ Be direct, immediate, and action-oriented. Users expect you to DO things, not di
                 # Chat-focused prompt for conversational responses with context
                 chat_prompt_parts = [
                     "You are a helpful AI assistant. Provide direct answers to user questions with brief reasoning or helpful context. "
-                    "For programming problems, include time complexity and Big O notation at the end. "
+                    "For programming, coding, algorithm, or computer science problems, include time complexity and Big O notation at the end. "
+                    "Do NOT include time complexity analysis for general file operations, system commands, or non-programming tasks. "
                     "For mathematical expressions, use proper LaTeX formatting with $ for inline math and $$ for display math (e.g., $x^2$, $$\\frac{d}{dx}(x^n) = nx^{n-1}$$). "
                     "Use clear formatting with appropriate markdown for structure, but avoid excessive styling.\n"
                 ]
@@ -300,22 +315,32 @@ For conversational queries, respond normally without the JSON structure.""")
         
         # Enhanced action patterns that Gemini might suggest
         action_patterns = {
+            # File system operations (terminal-based)
             'file_create': ['create file', 'make file', 'new file', 'generate file', 'build file', 'i\'ve created', 'creating', 'i will create'],
             'file_open': ['open file', 'show file', 'display file', 'view file', 'read file'],
             'file_edit': ['edit file', 'modify file', 'update file', 'change file', 'write to file'],
             'file_delete': ['delete file', 'remove file', 'erase file'],
-            'file_search': ['find file', 'search file', 'locate file', 'find smallest', 'find largest', 'search for file', 'smallest file', 'largest file'],
-            'system_search': ['find smallest file', 'find largest file', 'search system', 'scan for files', 'finding the smallest', 'searching for smallest', 'looking for smallest'],
+            'file_search': ['find file', 'search file', 'locate file', 'find smallest', 'find largest', 'search for file', 'smallest file', 'largest file', 'latest png files', 'recent files', 'files installed', 'files created', 'files modified'],
+            
+            # System/terminal operations
+            'system_search': ['find smallest file', 'find largest file', 'search system', 'scan for files', 'finding the smallest', 'searching for smallest', 'looking for smallest', 'largest app', 'biggest app', 'disk usage', 'storage usage', 'system files'],
+            'terminal_command': ['find /', 'ls -la', 'grep', 'cat', 'head', 'tail', 'sort', 'awk', 'sed', 'i\'m finding', 'i\'m searching', 'i\'m looking', 'du -', 'find . -name', 'locate', 'which', 'whereis', 'ps aux', 'top', 'htop', 'df -h', 'free -h'],
+            'directory_operations': ['list directory', 'show folder', 'browse folder', 'explore directory', 'what\'s in', 'contents of', 'files in downloads', 'files in desktop', 'files in documents'],
+            
+            # App/system control
             'app_launch': ['launch app', 'open app', 'start app', 'run app', 'i\'ll launch', 'launching', 'i will open'],
             'app_close': ['close app', 'quit app', 'exit app', 'stop app', 'kill app'],
-            'web_search': ['search web', 'google search', 'search for', 'look up', 'find online', 'web search'],
-            'web_browse': ['browse', 'visit', 'go to', 'navigate to', 'open url'],
-            'system_info': ['system info', 'system status', 'check system', 'system details'],
+            'system_info': ['system info', 'system status', 'check system', 'system details', 'running processes', 'memory usage', 'cpu usage'],
             'script_run': ['run script', 'execute script', 'python script', 'bash command', 'run command', 'execute command', 'terminal command'],
+            
+            # Web operations (non-terminal)
+            'web_search': ['search web', 'google search', 'search for', 'look up', 'find online', 'web search', 'search internet'],
+            'web_browse': ['browse', 'visit', 'go to', 'navigate to', 'open url', 'open youtube', 'open github', 'open website', 'open site'],
+            
+            # Other operations
             'organize': ['organize', 'sort', 'arrange', 'clean up', 'tidy up', 'structure'],
             'backup': ['backup', 'back up', 'save copy', 'create backup', 'archive'],
-            'screenshot': ['screenshot', 'screen capture', 'take screenshot', 'capture screen'],
-            'terminal_command': ['find /', 'ls -la', 'grep', 'cat', 'head', 'tail', 'sort', 'awk', 'sed', 'i\'m finding', 'i\'m searching', 'i\'m looking']
+            'screenshot': ['screenshot', 'screen capture', 'take screenshot', 'capture screen']
         }
         
         response_lower = ai_response.lower()
@@ -324,14 +349,42 @@ For conversational queries, respond normally without the JSON structure.""")
         # Check both the AI response and original user input for action indicators
         combined_text = response_lower + " " + user_input_lower
         
+        # Enhanced detection for file system operations
+        file_system_indicators = [
+            'files on my computer', 'files on computer', 'on my mac', 'on my laptop',
+            'in the past', 'days', 'weeks', 'months', 'recently', 'latest',
+            'png files', 'jpg files', 'pdf files', 'txt files', 'doc files',
+            'downloads folder', 'desktop folder', 'documents folder',
+            'largest app', 'biggest app', 'smallest file', 'largest file',
+            'disk space', 'storage space', 'file size', 'directory size'
+        ]
+        
+        # Check if this is clearly a file system operation
+        is_file_system_operation = any(indicator in user_input_lower for indicator in file_system_indicators)
+        
         for action_type, keywords in action_patterns.items():
             for keyword in keywords:
                 if keyword in combined_text:
+                    action_confidence = 0.8
+                    
+                    # Boost confidence for file system operations
+                    if is_file_system_operation and action_type in ['file_search', 'system_search', 'terminal_command', 'directory_operations']:
+                        action_confidence = 0.95
+                    
+                    # Lower confidence for web operations when file system indicators are present
+                    elif is_file_system_operation and action_type in ['web_search', 'web_browse']:
+                        action_confidence = 0.3
+                    
+                    # Extract parameters based on action type
+                    parameters = self._extract_action_parameters(action_type, user_input, ai_response)
+                    
                     actions.append({
                         'type': action_type,
                         'description': f"Execute {action_type.replace('_', ' ')}",
-                        'confidence': 0.8,
-                        'source': 'ai_response' if keyword in response_lower else 'user_input'
+                        'confidence': action_confidence,
+                        'source': 'ai_response' if keyword in response_lower else 'user_input',
+                        'is_terminal_operation': action_type in ['file_search', 'system_search', 'terminal_command', 'directory_operations', 'system_info'],
+                        'parameters': parameters
                     })
                     break  # Only add each action type once
         
@@ -358,6 +411,93 @@ For conversational queries, respond normally without the JSON structure.""")
                     break
         
         return actions
+    
+    def _extract_action_parameters(self, action_type: str, user_input: str, ai_response: str) -> Dict[str, Any]:
+        """Extract parameters for specific action types based on user input and AI response."""
+        import os
+        parameters = {}
+        user_input_lower = user_input.lower()
+        ai_response_lower = ai_response.lower()
+        combined_text = user_input_lower + " " + ai_response_lower
+        
+        if action_type == 'file_search':
+            # Extract search patterns for file search
+            if 'largest file' in combined_text or 'biggest file' in combined_text:
+                # For largest file queries, use du command to find largest files
+                parameters['command'] = "find ~ -type f -exec du -h {} + 2>/dev/null | sort -rh | head -10"
+                parameters['pattern'] = 'largest'
+            elif 'smallest file' in combined_text:
+                # For smallest file queries
+                parameters['command'] = "find ~ -type f -exec du -h {} + 2>/dev/null | sort -h | head -10"
+                parameters['pattern'] = 'smallest'
+            elif 'recent files' in combined_text or 'latest files' in combined_text:
+                # For recent files
+                parameters['command'] = "find ~ -type f -mtime -7 -exec ls -lh {} + 2>/dev/null | head -20"
+                parameters['pattern'] = 'recent'
+            elif 'png files' in combined_text:
+                parameters['pattern'] = '*.png'
+                parameters['file_type'] = 'png'
+            elif 'jpg files' in combined_text or 'jpeg files' in combined_text:
+                parameters['pattern'] = '*.jpg'
+                parameters['file_type'] = 'jpg'
+            elif 'pdf files' in combined_text:
+                parameters['pattern'] = '*.pdf'
+                parameters['file_type'] = 'pdf'
+            else:
+                # Default file search
+                parameters['pattern'] = '*'
+                
+        elif action_type == 'terminal_command':
+            # Extract terminal commands - use background terminal by default for user-visible commands
+            if 'largest file' in combined_text or 'biggest file' in combined_text:
+                parameters['command'] = "find ~ -type f -exec du -h {} + 2>/dev/null | sort -rh | head -10"
+                parameters['use_background_terminal'] = True
+            elif 'smallest file' in combined_text:
+                parameters['command'] = "find ~ -type f -exec du -h {} + 2>/dev/null | sort -h | head -10"
+                parameters['use_background_terminal'] = True
+            elif 'recent files' in combined_text or 'latest files' in combined_text:
+                parameters['command'] = "find ~ -type f -mtime -7 -exec ls -lh {} + 2>/dev/null | head -20"
+                parameters['use_background_terminal'] = True
+            elif 'disk usage' in combined_text or 'storage usage' in combined_text:
+                parameters['command'] = "df -h"
+                parameters['use_background_terminal'] = True
+            elif 'system info' in combined_text:
+                parameters['command'] = "uname -a && sw_vers"
+                parameters['use_background_terminal'] = True
+            else:
+                # Try to extract command from user input
+                import re
+                # Look for common command patterns
+                command_patterns = [
+                    r'run\s+(.+)',
+                    r'execute\s+(.+)',
+                    r'command\s+(.+)',
+                    r'(find\s+.+)',
+                    r'(ls\s+.+)',
+                    r'(grep\s+.+)',
+                    r'(du\s+.+)',
+                    r'(df\s+.+)'
+                ]
+                
+                for pattern in command_patterns:
+                    match = re.search(pattern, user_input_lower)
+                    if match:
+                        parameters['command'] = match.group(1)
+                        parameters['use_background_terminal'] = True  # Default to background terminal
+                        break
+                        
+        elif action_type == 'organize':
+            # Extract organize parameters
+            if 'downloads' in combined_text:
+                parameters['directory'] = os.path.expanduser("~/Downloads")
+            elif 'desktop' in combined_text:
+                parameters['directory'] = os.path.expanduser("~/Desktop")
+            elif 'documents' in combined_text:
+                parameters['directory'] = os.path.expanduser("~/Documents")
+            else:
+                parameters['directory'] = os.path.expanduser("~/Downloads")  # Default
+                
+        return parameters
     
     def _extract_json_actions(self, ai_response: str) -> List[Dict[str, Any]]:
         """Extract JSON-formatted action plans from AI response."""
@@ -469,7 +609,13 @@ For conversational queries, respond normally without the JSON structure.""")
             'help me', 'i want to', 'i need to', 'could you',
             'would you mind', 'can you help me', 'please help',
             # Complex or multi-part requests
-            'and also', 'then', 'after that', 'both', 'multiple'
+            'and also', 'then', 'after that', 'both', 'multiple',
+            # File system operations that need AI decision making
+            'largest file', 'biggest file', 'smallest file', 'recent files',
+            'latest files', 'newest files', 'find files', 'search files',
+            'organize', 'clean up', 'sort files', 'move files',
+            # Terminal and command operations
+            'terminal', 'command', 'execute', 'run', 'bash', 'shell'
         ]
         
         command_lower = command.lower()

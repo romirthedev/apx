@@ -118,9 +118,9 @@ class PerformanceAnalyzerTool:
                 "analysis": analysis,
                 "message": "Basic performance data analysis completed."
             }
-        except RuntimeError as re:
-            logging.error(re)
-            return {"success": False, "error": str(re)}
+        except RuntimeError as runtime_error:
+            logging.error(runtime_error)
+            return {"success": False, "error": str(runtime_error)}
         except Exception as e:
             logging.error(f"An unexpected error occurred during basic analysis: {e}")
             return {"success": False, "error": f"An unexpected error occurred: {str(e)}"}
@@ -186,9 +186,9 @@ class PerformanceAnalyzerTool:
                 "filtered_data_sample": df.head(10).to_dict('records'),
                 "message": f"Filtered to {filtered_rows} rows."
             }
-        except RuntimeError as re:
-            logging.error(re)
-            return {"success": False, "error": str(re)}
+        except RuntimeError as runtime_error:
+            logging.error(f"Runtime error during filtering: {runtime_error}")
+            return {"success": False, "error": str(runtime_error)}
         except ValueError as ve:
             logging.error(f"Invalid input for filtering: {ve}")
             return {"success": False, "error": str(ve)}
@@ -230,9 +230,9 @@ class PerformanceAnalyzerTool:
             logging.info("AI-driven analysis completed successfully.")
             return result # Expecting the API to return a structured JSON with analysis and recommendations
 
-        except RuntimeError as re:
-            logging.error(re)
-            return {"success": False, "error": str(re)}
+        except RuntimeError as runtime_error:
+            logging.error(f"Runtime error during AI analysis: {runtime_error}")
+            return {"success": False, "error": str(runtime_error)}
         except requests.exceptions.RequestException as req_err:
             logging.error(f"Error communicating with the analysis API: {req_err}")
             return {"success": False, "error": f"Failed to connect to analysis API: {req_err}"}
@@ -275,9 +275,9 @@ class PerformanceAnalyzerTool:
             logging.info("Optimization recommendations generated successfully.")
             return result
 
-        except RuntimeError as re:
-            logging.error(re)
-            return {"success": False, "error": str(re)}
+        except RuntimeError as runtime_error:
+            logging.error(f"Runtime error during optimization recommendations: {runtime_error}")
+            return {"success": False, "error": str(runtime_error)}
         except ValueError as ve:
             logging.error(f"Invalid input for generating recommendations: {ve}")
             return {"success": False, "error": str(ve)}

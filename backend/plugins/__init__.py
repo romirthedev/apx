@@ -1,1 +1,1 @@
-# Plugin modules for Cluely backend
+# Plugin modules for Apex backend

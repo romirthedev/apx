@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class AutomationManager:
     def __init__(self):
-        self.workflows_dir = os.path.expanduser("~/Documents/Cluely_Workflows")
+        self.workflows_dir = os.path.expanduser("~/Documents/Apex_Workflows")
         os.makedirs(self.workflows_dir, exist_ok=True)
         self.running_workflows = {}
     
@@ -121,7 +121,7 @@ class AutomationManager:
                 return f"Waited {duration} seconds"
             
             elif step_type == 'notification':
-                title = step_data.get('title', 'Cluely')
+                title = step_data.get('title', 'Apex')
                 message = step_data.get('message', '')
                 self._send_notification(title, message)
                 return f"Sent notification: {message}"

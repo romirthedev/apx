@@ -95,6 +95,8 @@ class CommandExecutor:
                 if file_name_param:
                     parameters['pattern'] = file_name_param
                 result = self._handle_find_file(parameters)
+            elif action_type == 'file_search':
+                result = self._handle_file_search(parameters)
             elif action_type in ['file_open', 'open_file']:
                 result = self._handle_open_file(parameters)
             elif action_type in ['file_edit', 'edit_file']:
@@ -117,12 +119,18 @@ class CommandExecutor:
             # System control
             elif action_type == 'run_command':
                 result = self._handle_run_command(action)
+            elif action_type == 'terminal_command':
+                result = self._handle_terminal_command(parameters)
+            elif action_type == 'background_terminal_command':
+                result = self._handle_background_terminal_command(parameters)
             elif action_type == 'get_system_info':
                 result = self._handle_get_system_info(parameters)
             elif action_type == 'get_date':
                 result = self._handle_get_date(parameters)
             elif action_type == 'take_screenshot':
                 result = self._handle_take_screenshot(parameters)
+            elif action_type == 'organize':
+                result = self._handle_organize(parameters)
                 
             # Input simulation
             elif action_type == 'type_text':
@@ -264,6 +272,51 @@ class CommandExecutor:
             return False, "", f"Command timed out after {timeout} seconds"
         except Exception as e:
             return False, "", f"Error executing command: {str(e)}"
+    
+    def _run_shell_command_in_background_terminal(self, command: str, show_output: bool = True) -> Tuple[bool, str, str]:
+        """Run a shell command silently in the background and return actual output.
+        
+        Args:
+            command: Command to execute
+            show_output: Whether to show command output in the terminal (for compatibility)
+            
+        Returns:
+            Tuple of (success, output, error)
+        """
+        logger.info(f"_run_shell_command_in_background_terminal called with command: {command}")
+        try:
+            # Execute the command directly and capture output
+            # This runs truly in the background without opening any terminal windows
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=os.path.expanduser("~")  # Start from home directory
+            )
+            
+            logger.info(f"Command executed silently: {command}")
+            logger.info(f"Return code: {result.returncode}")
+            logger.info(f"Output: {result.stdout[:200]}...")  # Log first 200 chars
+            
+            if result.returncode == 0:
+                output = result.stdout.strip() if result.stdout else "Command completed successfully"
+                logger.info(f"Successfully executed background command: {command}")
+                return True, output, result.stderr.strip() if result.stderr else ""
+            else:
+                error_msg = result.stderr.strip() if result.stderr else f"Command failed with exit code {result.returncode}"
+                logger.error(f"Command failed: {command}, error: {error_msg}")
+                return False, result.stdout.strip() if result.stdout else "", error_msg
+                
+        except subprocess.TimeoutExpired:
+            error_msg = "Command execution timed out (30s limit)"
+            logger.error(f"Command timed out: {command}")
+            return False, "", error_msg
+        except Exception as e:
+            error_msg = f"Error executing command: {str(e)}"
+            logger.error(error_msg)
+            return False, "", error_msg
     
     # File operations
     def _handle_create_file(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -791,14 +844,28 @@ class CommandExecutor:
         }
         
         command = params.get('parameters', {}).get('command', '')
+        if not command:
+            command = params.get('command', '')  # Fallback for direct command parameter
+            
         timeout = params.get('timeout', 30)
+        use_background_terminal = params.get('use_background_terminal', True)  # Default to background
+        show_output = params.get('show_output', True)
+        
+        logger.info(f"Run command execution - Command: {command}, use_background_terminal: {use_background_terminal}")
         
         if not command:
             result['error'] = "No command specified"
             return result
         
         try:
-            success, output, error = self._run_shell_command(command, timeout=timeout)
+            if use_background_terminal:
+                # Use background terminal for user-visible commands
+                logger.info("Using background terminal execution for run_command")
+                success, output, error = self._run_shell_command_in_background_terminal(command, show_output)
+            else:
+                # Use internal execution for system commands
+                logger.info("Using internal command execution for run_command")
+                success, output, error = self._run_shell_command(command, timeout=timeout)
             
             result['success'] = success
             result['output'] = output
@@ -1108,6 +1175,177 @@ class CommandExecutor:
                 result['error'] = "PyAutoGUI not available for clicking"
                 
         except Exception as e:
-            result['error'] = f"Error clicking at coordinates: {str(e)}"
+            result['error'] = f"Error clicking coordinates: {str(e)}"
+        
+        return result
+
+    def _handle_file_search(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle file search operations.
+        
+        Args:
+            params: Parameters including search criteria
+            
+        Returns:
+            Result dictionary
+        """
+        result = {
+            'success': False,
+            'output': '',
+            'error': ''
+        }
+        
+        try:
+            # Extract search parameters
+            pattern = params.get('pattern', params.get('query', ''))
+            directory = params.get('directory', os.path.expanduser("~"))
+            file_type = params.get('file_type', '')
+            
+            if not pattern:
+                result['error'] = "No search pattern specified"
+                return result
+            
+            # Use find command for file search
+            find_cmd = f"find '{directory}' -name '*{pattern}*'"
+            if file_type:
+                find_cmd += f" -name '*.{file_type}'"
+            
+            success, output, error = self._run_shell_command(find_cmd, timeout=30)
+            
+            if success:
+                result['success'] = True
+                result['output'] = output if output else "No files found matching the criteria"
+            else:
+                result['error'] = error or "File search failed"
+                
+        except Exception as e:
+            result['error'] = f"Error during file search: {str(e)}"
+        
+        return result
+
+    def _handle_terminal_command(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle terminal command execution.
+        
+        Args:
+            params: Parameters including command and execution mode
+            
+        Returns:
+            Result dictionary
+        """
+        result = {
+            'success': False,
+            'output': '',
+            'error': ''
+        }
+        
+        command = params.get('command', '')
+        timeout = params.get('timeout', 30)
+        use_background_terminal = params.get('use_background_terminal', True)  # Default to background
+        show_output = params.get('show_output', True)
+        
+        logger.info(f"Terminal command execution - Command: {command}, use_background_terminal: {use_background_terminal}")
+        
+        if not command:
+            result['error'] = "No command specified"
+            return result
+        
+        try:
+            if use_background_terminal:
+                # Use background terminal for user-visible commands
+                logger.info("Using background terminal execution")
+                success, output, error = self._run_shell_command_in_background_terminal(command, show_output)
+            else:
+                # Use internal execution for system commands
+                logger.info("Using internal command execution")
+                success, output, error = self._run_shell_command(command, timeout=timeout)
+            
+            result['success'] = success
+            result['output'] = output
+            result['error'] = error
+                
+        except Exception as e:
+            result['error'] = f"Error running terminal command: {str(e)}"
+        
+        return result
+
+    def _handle_background_terminal_command(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle background terminal command execution specifically.
+        
+        Args:
+            params: Parameters including command
+            
+        Returns:
+            Result dictionary
+        """
+        result = {
+            'success': False,
+            'output': '',
+            'error': ''
+        }
+        
+        command = params.get('command', '')
+        show_output = params.get('show_output', True)
+        
+        if not command:
+            result['error'] = "No command specified"
+            return result
+        
+        try:
+            success, output, error = self._run_shell_command_in_background_terminal(command, show_output)
+            
+            result['success'] = success
+            result['output'] = output
+            result['error'] = error
+                
+        except Exception as e:
+            result['error'] = f"Error running background terminal command: {str(e)}"
+        
+        return result
+
+    def _handle_organize(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle organize operations.
+        
+        Args:
+            params: Parameters including what to organize
+            
+        Returns:
+            Result dictionary
+        """
+        result = {
+            'success': False,
+            'output': '',
+            'error': ''
+        }
+        
+        try:
+            target = params.get('target', 'downloads')
+            
+            if target.lower() == 'downloads':
+                # Organize downloads folder
+                downloads_path = os.path.expanduser("~/Downloads")
+                if os.path.exists(downloads_path):
+                    # Simple organization by file type
+                    organized_count = 0
+                    for filename in os.listdir(downloads_path):
+                        file_path = os.path.join(downloads_path, filename)
+                        if os.path.isfile(file_path):
+                            # Get file extension
+                            _, ext = os.path.splitext(filename)
+                            if ext:
+                                ext_folder = os.path.join(downloads_path, ext[1:].upper() + "_Files")
+                                os.makedirs(ext_folder, exist_ok=True)
+                                new_path = os.path.join(ext_folder, filename)
+                                if not os.path.exists(new_path):
+                                    shutil.move(file_path, new_path)
+                                    organized_count += 1
+                    
+                    result['success'] = True
+                    result['output'] = f"Organized {organized_count} files in Downloads folder"
+                else:
+                    result['error'] = "Downloads folder not found"
+            else:
+                result['error'] = f"Organize target '{target}' not supported"
+                
+        except Exception as e:
+            result['error'] = f"Error organizing: {str(e)}"
         
         return result

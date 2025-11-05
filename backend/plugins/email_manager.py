@@ -161,9 +161,9 @@ class EmailManager:
             # Create ICS content
             ics_content = f"""BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:Cluely
+PRODID:Apex
 BEGIN:VEVENT
-UID:{start_formatted}@cluely.local
+UID:{start_formatted}@apex.local
 DTSTART:{start_formatted}
 DTEND:{end_formatted}
 SUMMARY:{title}

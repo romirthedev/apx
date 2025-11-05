@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import traceback
+import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
@@ -28,7 +29,7 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('cluely.log'),
+        logging.FileHandler('apex.log'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 logging.getLogger('core.command_executor').setLevel(logging.DEBUG)
 logging.getLogger('plugins.file_manager').setLevel(logging.DEBUG)
 
-class CluelyBackend:
+class ApexBackend:
     def __init__(self):
         self.app = Flask(__name__)
         CORS(self.app)
@@ -80,7 +81,28 @@ class CluelyBackend:
         self.latest_transcription = None
         self.transcription_lock = threading.Lock()
         
+        # Import voice functionality
+        from voice.voice_manager import VoiceManager
+        
+        # Initialize voice manager
+        self.voice_manager = None
+        
+        # Initialize voice event loop variables
+        self._voice_loop = None
+        self._voice_thread = None
+        
         self._setup_routes()
+    
+    def _run_voice_loop(self, loop):
+        """Run the persistent event loop for voice processing in a background thread."""
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_forever()
+        except Exception as e:
+            logger.error(f"Voice event loop error: {e}")
+        finally:
+            loop.close()
+        
         
     def _setup_routes(self):
         @self.app.route('/health', methods=['GET'])
@@ -409,6 +431,166 @@ Response:"""
                     'error': str(e)
                 })
         
+        # Enhanced Audio Capture Endpoints
+        @self.app.route('/start_enhanced_capture', methods=['POST'])
+        def start_enhanced_capture():
+            """Start enhanced continuous capture with speaker diarization"""
+            try:
+                data = request.get_json() or {}
+                chunk_duration = data.get('chunk_duration', 5)  # Longer chunks for better quality
+                
+                # Import enhanced audio manager
+                from plugins.enhanced_audio_manager import EnhancedAudioManager
+                enhanced_audio_manager = EnhancedAudioManager()
+                
+                # Define enhanced callback function to handle audio chunks with speaker info
+                def enhanced_audio_callback(enhanced_data):
+                    # Store the latest enhanced audio data
+                    self.latest_audio_chunk = enhanced_data.get('audio_data', '')
+                    speaker_id = enhanced_data.get('speaker_id', 'Unknown')
+                    
+                    logger.debug(f"Received enhanced audio chunk from {speaker_id}")
+                    
+                    # Automatically transcribe with speaker information
+                    try:
+                        transcription_result = enhanced_audio_manager.transcribe_with_speaker_info(enhanced_data)
+                        if transcription_result.get('success') and transcription_result.get('text'):
+                            with self.transcription_lock:
+                                self.latest_transcription = {
+                                    'text': transcription_result['text'],
+                                    'text_with_speaker': transcription_result.get('text_with_speaker', ''),
+                                    'speaker_id': speaker_id,
+                                    'speaker_info': {
+                                        'speaker_id': speaker_id,
+                                        'confidence': transcription_result.get('confidence', 0)
+                                    },
+                                    'timestamp': enhanced_data.get('timestamp'),
+                                    'success': True,
+                                    'enhanced': True
+                                }
+                            logger.info(f"Enhanced transcription [{speaker_id}]: {transcription_result['text'][:50]}...")
+                        else:
+                            logger.debug(f"No speech detected in audio chunk from {speaker_id}")
+                    except Exception as transcription_error:
+                        logger.error(f"Error in enhanced transcription: {str(transcription_error)}")
+                        with self.transcription_lock:
+                            self.latest_transcription = {
+                                'text': '',
+                                'speaker_id': speaker_id,
+                                'timestamp': enhanced_data.get('timestamp'),
+                                'success': False,
+                                'error': str(transcription_error),
+                                'enhanced': True
+                            }
+                
+                result = enhanced_audio_manager.start_enhanced_continuous_capture(
+                    callback=enhanced_audio_callback,
+                    chunk_duration=chunk_duration
+                )
+                
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"Error starting enhanced capture: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/stop_enhanced_capture', methods=['POST'])
+        def stop_enhanced_capture():
+            """Stop enhanced continuous capture"""
+            try:
+                from plugins.enhanced_audio_manager import EnhancedAudioManager
+                enhanced_audio_manager = EnhancedAudioManager()
+                
+                result = enhanced_audio_manager.stop_continuous_capture()
+                return jsonify(result)
+                
+            except Exception as e:
+                logger.error(f"Error stopping enhanced capture: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/transcribe_audio_enhanced', methods=['POST'])
+        def transcribe_audio_enhanced():
+            """Enhanced transcribe audio with speaker diarization"""
+            try:
+                data = request.get_json()
+                use_enhanced = data.get('use_enhanced', True)
+                include_speaker_info = data.get('include_speaker_info', True)
+                
+                from plugins.enhanced_audio_manager import EnhancedAudioManager
+                enhanced_audio_manager = EnhancedAudioManager()
+                
+                # Get the latest enhanced transcription with speaker info
+                result = enhanced_audio_manager.get_latest_transcription_with_speaker()
+                
+                if result and result.get('text'):
+                    return jsonify({
+                        'success': True,
+                        'text': result['text'],
+                        'speaker_info': result.get('speaker_info', {}),
+                        'confidence': result.get('confidence', 0),
+                        'timestamp': result.get('timestamp', time.time())
+                    })
+                else:
+                    return jsonify({
+                        'success': True,
+                        'text': '',
+                        'speaker_info': {},
+                        'confidence': 0
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error in enhanced transcription: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/get_speaker_summary', methods=['GET'])
+        def get_speaker_summary():
+            """Get summary of identified speakers"""
+            try:
+                from plugins.enhanced_audio_manager import EnhancedAudioManager
+                enhanced_audio_manager = EnhancedAudioManager()
+                
+                summary = enhanced_audio_manager.get_speaker_summary()
+                return jsonify({
+                    'success': True,
+                    'data': summary
+                })
+                
+            except Exception as e:
+                logger.error(f"Error getting speaker summary: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        @self.app.route('/get_audio_setup_guide', methods=['GET'])
+        def get_audio_setup_guide():
+            """Get system audio setup guide for macOS"""
+            try:
+                from plugins.enhanced_audio_manager import EnhancedAudioManager
+                enhanced_audio_manager = EnhancedAudioManager()
+                
+                guide = enhanced_audio_manager.get_system_audio_setup_guide()
+                return jsonify({
+                    'success': True,
+                    'data': guide
+                })
+                
+            except Exception as e:
+                logger.error(f"Error getting audio setup guide: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })
+        
         @self.app.route('/audio_setup_info', methods=['GET'])
         def get_audio_setup_info():
             try:
@@ -430,13 +612,17 @@ Response:"""
         def capture_screenshot():
             """Capture a screenshot and analyze it with AI to answer questions on screen"""
             try:
+                # Get request data to check for enhanced mode preference
+                data = request.get_json() or {}
+                enhanced_coding_mode = data.get('enhanced_coding_mode', True)  # Default to True
+                
                 # Import screenshot manager
                 from plugins.screenshot_manager import ScreenshotManager
                 screenshot_manager = ScreenshotManager()
                 
-                # Capture screenshot and analyze with AI
-                logger.info("Capturing screenshot and analyzing with AI")
-                result = screenshot_manager.capture_screenshot_and_analyze()
+                # Capture screenshot and analyze with AI using enhanced mode
+                logger.info(f"Capturing screenshot and analyzing with AI (enhanced_coding_mode: {enhanced_coding_mode})")
+                result = screenshot_manager.capture_screenshot_and_analyze(enhanced_coding_mode=enhanced_coding_mode)
                 
                 return jsonify(result)
                 
@@ -720,6 +906,324 @@ Response:"""
                 'capabilities': self.command_processor.get_capabilities()
             })
         
+        # Voice API endpoints
+        @self.app.route('/api/voice/init', methods=['POST'])
+        def init_voice():
+            try:
+                if self.voice_manager is None:
+                    from voice.voice_manager import VoiceManager
+                    self.voice_manager = VoiceManager()
+                    logger.info("Voice manager initialized")
+                
+                # Create or get the persistent event loop for voice processing
+                if not hasattr(self, '_voice_loop') or self._voice_loop is None:
+                    self._voice_loop = asyncio.new_event_loop()
+                    self._voice_thread = threading.Thread(
+                        target=self._run_voice_loop, 
+                        args=(self._voice_loop,), 
+                        daemon=True
+                    )
+                    self._voice_thread.start()
+                
+                # Activate the voice manager to properly initialize synthesizer and recognizer
+                future = asyncio.run_coroutine_threadsafe(
+                    self.voice_manager.activate(),
+                    self._voice_loop
+                )
+                future.result(timeout=10)
+                logger.info("Voice system activated successfully")
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Voice system initialized and activated'
+                })
+            except Exception as e:
+                logger.error(f"Error initializing voice system: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                }), 500
+        
+        @self.app.route('/api/voice/start', methods=['POST'])
+        def start_voice():
+            try:
+                if self.voice_manager is None:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Voice system not initialized'
+                    }), 400
+                
+                if not hasattr(self, '_voice_loop') or self._voice_loop is None:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Voice system not properly initialized. Call /api/voice/init first.'
+                    }), 400
+                
+                # Set up voice command callback
+                async def voice_command_callback(command_text, command_type):
+                    try:
+                        logger.info(f"Processing voice command: {command_text} (type: {command_type})")
+                        
+                        # Process the command using existing backend systems
+                        if command_type == 'chat':
+                            # Use Gemini AI for chat responses
+                            if self.gemini_ai:
+                                response = self.gemini_ai.generate_response(command_text, [])
+                                result_text = response.get('response', 'I apologize, but I could not process your request.')
+                            else:
+                                result_text = "Chat functionality is not available."
+                        
+                        elif command_type == 'action':
+                            # Use command processor for actions
+                            result = self.command_processor.process(command_text, [])
+                            result_text = result.get('result', 'Action completed.')
+                        
+                        elif command_type == 'web_search':
+                            # Use command processor for web search
+                            search_command = f"search web for {command_text}"
+                            result = self.command_processor.process(search_command, [])
+                            result_text = result.get('result', 'Search completed.')
+                        
+                        else:
+                            result_text = "I'm not sure how to handle that request."
+                        
+                        # Speak the response
+                        await self.voice_manager.speak_response(result_text)
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing voice command: {str(e)}")
+                        await self.voice_manager.speak_response("I encountered an error processing your request.")
+                
+                # Start listening using the persistent loop
+                future = asyncio.run_coroutine_threadsafe(
+                    self.voice_manager.start_listening(voice_command_callback),
+                    self._voice_loop
+                )
+                success = future.result(timeout=10)
+                
+                if not success:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Failed to start voice listening'
+                    }), 500
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Voice listening started'
+                })
+            except Exception as e:
+                logger.error(f"Error starting voice system: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                }), 500
+        
+        @self.app.route('/api/voice/stop', methods=['POST'])
+        def stop_voice():
+            try:
+                if self.voice_manager is None:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Voice system not initialized'
+                    }), 400
+                
+                self.voice_manager.stop_listening()
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Voice listening stopped'
+                })
+            except Exception as e:
+                logger.error(f"Error stopping voice system: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                }), 500
+        
+        @self.app.route('/api/voice/natural', methods=['POST'])
+        def start_natural_conversation():
+            try:
+                if self.voice_manager is None:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Voice system not initialized'
+                    }), 400
+                
+                if not hasattr(self, '_voice_loop') or self._voice_loop is None:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Voice system not properly initialized. Call /api/voice/init first.'
+                    }), 400
+                
+                # Set up natural conversation callback
+                # Helper function to clean responses for speech synthesis
+                def clean_response_for_speech(text):
+                    import re
+                    # Remove LaTeX math expressions
+                    text = re.sub(r'\$[^$]*\$', '', text)  # Remove $...$ 
+                    text = re.sub(r'\\\([^)]*\\\)', '', text)  # Remove \(...\)
+                    text = re.sub(r'\\\[[^\]]*\\\]', '', text)  # Remove \[...\]
+                    # Remove common LaTeX commands
+                    text = re.sub(r'\\[a-zA-Z]+\{[^}]*\}', '', text)  # Remove \command{...}
+                    text = re.sub(r'\\[a-zA-Z]+', '', text)  # Remove \command
+                    # Remove excessive whitespace
+                    text = re.sub(r'\s+', ' ', text).strip()
+                    # Replace technical terms with spoken equivalents
+                    text = text.replace('&', 'and')
+                    text = text.replace('%', 'percent')
+                    text = text.replace('@', 'at')
+                    text = text.replace('#', 'number')
+                    return text
+
+                async def natural_conversation_callback(speech_text):
+                    try:
+                        logger.info(f"=== NATURAL CONVERSATION CALLBACK CALLED ===")
+                        logger.info(f"Processing natural speech: {speech_text}")
+                        
+                        # Enhanced AI conversation with action capabilities
+                        if self.gemini_ai:
+                            # Create a more sophisticated prompt that includes action capabilities
+                            conversation_prompt = f"""You are Apex, an advanced AI assistant having a natural conversation with the user. You can:
+1. Have friendly, conversational responses
+2. Perform actions like taking screenshots, searching the web, creating files, etc.
+3. Execute system commands
+4. Help with various tasks
+
+IMPORTANT: 
+- Your name is Apex, not Cluely or any other name
+- Respond in plain text only - NO LaTeX, NO mathematical formatting, NO special symbols
+- Use simple, natural language that sounds good when spoken aloud
+- Avoid technical jargon unless specifically requested
+
+If the user asks you to perform an action, you should:
+- First acknowledge their request conversationally
+- Then perform the action using the available capabilities
+- Finally, report back on the results in a natural way
+
+User said: {speech_text}
+
+Respond naturally and helpfully as Apex. Keep your response conversational and easy to understand when spoken."""
+                            
+                            logger.info("Generating AI response...")
+                            response = self.gemini_ai.generate_response(conversation_prompt, [])
+                            ai_response = response.get('response', 'I apologize, but I could not process your request.')
+                            logger.info(f"AI response generated: {ai_response[:100]}...")
+                            
+                            # Clean up LaTeX and mathematical formatting from the response
+                            ai_response = clean_response_for_speech(ai_response)
+                            
+                            # Enhanced action detection with better keyword matching
+                            action_keywords = {
+                                'screenshot': ['screenshot', 'screen shot', 'capture screen', 'take a picture'],
+                                'web_search': ['search', 'look up', 'find information', 'google', 'web search'],
+                                'create_file': ['create file', 'make file', 'new file', 'write file'],
+                                'read_file': ['read file', 'open file', 'show file', 'display file'],
+                                'list_files': ['list files', 'show files', 'what files', 'file list'],
+                                'open_application': ['open', 'launch', 'start app', 'run'],
+                                'get_system_info': ['system info', 'system information', 'computer info', 'specs']
+                            }
+                            
+                            # Improved action detection
+                            action_performed = False
+                            speech_lower = speech_text.lower()
+                            
+                            for action_type, keywords in action_keywords.items():
+                                for keyword in keywords:
+                                    if keyword in speech_lower:
+                                        try:
+                                            logger.info(f"Detected action: {action_type} from keyword: {keyword}")
+                                            parameters = {}
+                                            
+                                            if action_type == 'web_search':
+                                                # Better search query extraction
+                                                for search_word in ['search for', 'look up', 'find', 'google']:
+                                                    if search_word in speech_lower:
+                                                        query_start = speech_lower.find(search_word) + len(search_word)
+                                                        search_query = speech_text[query_start:].strip()
+                                                        break
+                                                else:
+                                                    search_query = speech_text.replace(keyword, '').strip()
+                                                parameters = {'query': search_query}
+                                                
+                                            elif action_type == 'open_application':
+                                                # Better app name extraction
+                                                app_name = speech_text.lower().replace(keyword, '').strip()
+                                                # Remove common words
+                                                for word in ['please', 'can you', 'could you', 'the', 'application', 'app']:
+                                                    app_name = app_name.replace(word, '').strip()
+                                                parameters = {'app_name': app_name}
+                                                
+                                            elif action_type == 'create_file':
+                                                # Try to extract filename from speech
+                                                filename = 'voice_created_file.txt'
+                                                content = f'File created via voice command at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
+                                                parameters = {'filename': filename, 'content': content}
+                                            
+                                            # Perform the action
+                                            logger.info(f"Performing action: {action_type} with parameters: {parameters}")
+                                            action_result = await self.voice_manager.perform_ai_action(action_type, parameters)
+                                            
+                                            if action_result.get('success'):
+                                                result_text = f"{ai_response} I've completed that action for you! {action_result.get('result', '')}"
+                                            else:
+                                                result_text = f"{ai_response} I tried to help with that, but encountered an issue: {action_result.get('error', 'Unknown error')}"
+                                            
+                                            action_performed = True
+                                            break
+                                            
+                                        except Exception as action_error:
+                                            logger.error(f"Error performing action {action_type}: {str(action_error)}")
+                                            result_text = f"{ai_response} I tried to help with that, but encountered a technical issue."
+                                            action_performed = True
+                                            break
+                                
+                                if action_performed:
+                                    break
+                            
+                            if not action_performed:
+                                result_text = ai_response
+                                
+                        else:
+                            result_text = "I'm sorry, but I'm not able to have a conversation right now."
+                        
+                        # Final cleanup for speech
+                        result_text = clean_response_for_speech(result_text)
+                        
+                        # Speak the response with more natural voice
+                        logger.info(f"About to speak response: {result_text[:100]}...")
+                        await self.voice_manager.speak_response(result_text)
+                        logger.info("=== NATURAL CONVERSATION CALLBACK COMPLETED ===")
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing natural conversation: {str(e)}")
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                        await self.voice_manager.speak_response("I'm sorry, I didn't catch that. Could you try again?")
+                
+                # Start natural conversation using the persistent loop
+                future = asyncio.run_coroutine_threadsafe(
+                    self.voice_manager.start_natural_conversation(natural_conversation_callback),
+                    self._voice_loop
+                )
+                success = future.result(timeout=10)
+                
+                if not success:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Failed to start natural conversation'
+                    }), 500
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Natural conversation started with pause detection'
+                })
+            except Exception as e:
+                logger.error(f"Error starting natural conversation: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                }), 500
+        
         # Serve frontend files
         @self.app.route('/')
         def serve_index():
@@ -878,7 +1382,7 @@ Response:"""
             from datetime import datetime
             
             # Create documents directory if it doesn't exist
-            docs_dir = os.path.expanduser("~/Documents/Cluely_Generated")
+            docs_dir = os.path.expanduser("~/Documents/Apex_Generated")
             os.makedirs(docs_dir, exist_ok=True)
             
             # Generate filename with timestamp
@@ -927,7 +1431,7 @@ Response:"""
     def run(self, host='0.0.0.0', port=None):
         if port is None:
             port = self.config.get('server.port', 8888)
-        logger.info(f"Starting Cluely backend on {host}:{port}")
+        logger.info(f"Starting Apex backend on {host}:{port}")
         
         # Check for required permissions
         if not self.security_manager.check_permissions():
@@ -939,7 +1443,7 @@ Response:"""
 def main():
     import argparse
     
-    parser = argparse.ArgumentParser(description='Cluely AI Assistant Backend')
+    parser = argparse.ArgumentParser(description='Apex AI Assistant Backend')
     parser.add_argument('--daemon', action='store_true', 
                        help='Run as daemon service')
     parser.add_argument('--host', default='localhost', 
@@ -977,10 +1481,10 @@ def main():
         sys.exit(0 if results['all_granted'] else 1)
     
     try:
-        backend = CluelyBackend()
+        backend = ApexBackend()
         
         if args.daemon:
-            logger.info("Starting Cluely backend in daemon mode...")
+            logger.info("Starting Apex backend in daemon mode...")
             # For daemon mode, we might want to detach from terminal
             # and run in background with different logging
             try:
@@ -988,7 +1492,7 @@ def main():
                 import daemon.pidfile
                 
                 daemon_context = daemon.DaemonContext(
-                    pidfile=daemon.pidfile.TimeoutPIDLockFile('/tmp/cluely.pid'),
+                    pidfile=daemon.pidfile.TimeoutPIDLockFile('/tmp/apex.pid'),
                     working_directory=os.getcwd()
                 )
                 
@@ -999,7 +1503,7 @@ def main():
                 # Run in background without full daemonization
                 backend.run(host=args.host, port=args.port)
         else:
-            logger.info("Starting Cluely backend in foreground mode...")
+            logger.info("Starting Apex backend in foreground mode...")
             backend.run(host=args.host, port=args.port)
             
     except KeyboardInterrupt:

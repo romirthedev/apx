@@ -16,6 +16,8 @@
   <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <!-- Bodoni Moda (modern Bodoni) web font -->
+  <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;500;600;700&display=swap" rel="stylesheet" />
   
   <style>
     html {
@@ -30,18 +32,18 @@
       width: 100%;
       height: 100%;
       background: none;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; /* Improved font stack */
+      font-family: 'Bodoni Moda', 'Bodoni 72', Didot, 'Times New Roman', serif;
       overflow: hidden;
       position: relative;
     }
     
     /* Main container with glass morphism effect */
     .overlay-container {
-       background: rgba(25, 25, 25, 0.2);
-       backdrop-filter: blur(12px);
+       background: linear-gradient(180deg, rgba(35, 35, 35, 0.30), rgba(45, 45, 45, 0.28));
+       backdrop-filter: none;
        border-radius: 16px;
-       border: 1px solid rgba(255, 255, 255, 0.1);
-       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+       border: none;
+       box-shadow: none;
        padding: 0;
        height: calc(100vh - 100px);
        width: 700px;
@@ -52,17 +54,20 @@
        position: relative;
        overflow: hidden;
        transition: all 0.3s ease;
+       background-clip: padding-box;
+       transform: translateZ(0);
+       will-change: transform;
      }
      
      /* Transcript mode no longer adjusts main overlay - using bottom layout */
      
      /* Transcript overlay that appears underneath the main overlay */
      .transcript-overlay {
-       background: rgba(25, 25, 25, 0.2);
-       backdrop-filter: blur(12px);
+       background: linear-gradient(180deg, rgba(35, 35, 35, 0.30), rgba(45, 45, 45, 0.28));
+       backdrop-filter: none;
        border-radius: 16px;
-       border: 1px solid rgba(255, 255, 255, 0.1);
-       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+       border: none;
+       box-shadow: none;
        padding: 15px;
        height: 150px;
        width: calc(100% - 40px);
@@ -77,6 +82,9 @@
        overflow: hidden;
        transition: all 0.3s ease;
        -webkit-app-region: drag;
+       background-clip: padding-box;
+       transform: translateZ(0);
+       will-change: transform;
      }
      
      .transcript-overlay.show {
@@ -214,22 +222,26 @@
     /* Slim top bar design */
      .slim-top-bar {
        height: 48px;
-       background: rgba(20, 20, 20, 0.25);
-       backdrop-filter: blur(20px);
+       background: linear-gradient(180deg, rgba(30, 30, 30, 0.30), rgba(40, 40, 40, 0.28));
+       backdrop-filter: none;
        border-radius: 24px;
-       border: 1px solid rgba(255, 255, 255, 0.08);
+       border: none;
        display: flex;
        align-items: center;
        justify-content: space-between;
        padding: 0 24px;
        margin: 16px;
-       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+       box-shadow: none;
        -webkit-app-region: no-drag;
        position: fixed;
        top: 0;
        left: 0;
        right: 0;
        z-index: 1000;
+       overflow: hidden;
+       background-clip: padding-box;
+       transform: translateZ(0);
+       will-change: transform;
      }
      
      /* Button group container */
@@ -261,6 +273,7 @@
        backdrop-filter: blur(8px);
        position: relative;
        overflow: hidden;
+       font-family: inherit;
      }
      
      .slim-btn:hover {
@@ -285,36 +298,38 @@
      .slim-btn:hover::before {
        left: 100%;
      }
-     
+
      .slim-btn:active {
        transform: translateY(0) scale(0.99);
        box-shadow: none;
        background: rgba(255, 255, 255, 0.03); /* Even more subtle active effect */
      }
-     
-     .slim-btn.active {
-       background: rgba(255, 255, 255, 0.1); /* Slightly visible when active */
-       border-color: transparent;
-       color: #fff;
+
+     /* Remove default focus outline from buttons */
+     .slim-btn:focus,
+     .slim-btn:focus-visible,
+     .send-btn:focus,
+     .send-btn:focus-visible,
+     .play-btn:focus,
+     .play-btn:focus-visible {
+       outline: none;
        box-shadow: none;
      }
      
-     /* Camera button special styling */
-     .camera-btn {
-       background: transparent;
-       border-color: transparent;
-       color: rgba(255, 255, 255, 0.9);
-       box-shadow: none;
-       min-width: 40px;
-       padding: 8px 12px;
-     }
+    .slim-btn.active {
+      background: rgba(255, 255, 255, 0.1); /* Slightly visible when active */
+      border-color: transparent;
+      color: #fff;
+      box-shadow: none;
+    }
+
+    /* Center spinner when Hey Apx is active */
+    .slim-btn.active #heyApxSpinner {
+      margin-right: 0;
+    }
      
-     .camera-btn:hover {
-       background: rgba(255, 255, 255, 0.1); /* Subtle white hover for camera button */
-       border-color: transparent;
-       box-shadow: none;
-       color: rgba(255, 255, 255, 1);
-     }
+     /* Camera button inherits .slim-btn styles */
+     .camera-btn { }
      
      /* Play/Record button styles */
      .play-btn {
@@ -377,18 +392,24 @@
        color: rgba(255, 255, 255, 0.6);
      }
      
-     .shortcut-keys {
-       background: rgba(255, 255, 255, 0.1);
-       border: 1px solid rgba(255, 255, 255, 0.2);
-       border-radius: 4px;
-       padding: 2px 6px;
-       font-size: 10px;
-       font-weight: 500;
-       color: rgba(255, 255, 255, 0.8);
-       min-width: 16px;
-       text-align: center;
-       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-     }
+   .shortcut-keys {
+     background: rgba(255, 255, 255, 0.10);
+     border: none !important;
+     border-radius: 4px;
+     padding: 2px 6px;
+     font-size: 10px;
+     font-weight: 500;
+     color: rgba(255, 255, 255, 0.85);
+     min-width: 16px;
+     text-align: center;
+     box-shadow: none !important;
+     line-height: 1;
+     -webkit-appearance: none;
+     outline: none;
+     transform: translateZ(0);
+     position: relative;
+     z-index: 1;
+   }
      
      .close-text {
        font-size: 11px;
@@ -420,6 +441,7 @@
       padding: 12px 16px;
       transition: all 0.3s ease;
       letter-spacing: 0.3px;
+      font-family: inherit;
     }
 
     .send-btn {
@@ -436,6 +458,7 @@
       align-items: center;
       justify-content: center;
       min-width: 80px;
+      font-family: inherit;
     }
     
     .send-btn:hover {
@@ -462,6 +485,7 @@
     
     .command-input::placeholder {
       color: rgba(255, 255, 255, 0.4);
+      font-family: inherit;
     }
     
     .status-indicator {
@@ -566,7 +590,7 @@
       margin: 0;
       white-space: pre-wrap;
       word-wrap: break-word;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+      font-family: inherit;
     }
     
     .result-success {
@@ -945,9 +969,42 @@
       }
     }
     
-    @keyframes spin {
+  @keyframes spin {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
+    }
+    
+    /* Hey Apx indicator: hollow white circle (inactive) and spinner (active) */
+    #voiceBtn {
+      justify-content: center;
+      padding: 0 8px;
+    }
+    #voiceBtn svg,
+    #voiceBtn #voiceLabel {
+      display: none;
+    }
+    .heyapx-spinner {
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 0;
+      width: 16px; /* half of 32px button height */
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.9);
+      border-top-color: rgba(255, 255, 255, 0.9);
+      border-radius: 50%;
+      background: transparent;
+      box-shadow: none;
+      animation: none; /* inactive: no animation */
+    }
+    .heyapx-spinner1 { display: none; }
+    .slim-btn.active #heyApxSpinner {
+      animation: spinning82341 1.2s linear infinite;
+      border-color: rgba(255, 255, 255, 0.35);
+      border-top-color: #ffffff;
+      margin-right: 0;
+    }
+    @keyframes spinning82341 {
+      to { transform: rotate(360deg); }
     }
     
 
@@ -974,13 +1031,32 @@
             <div class="bar"></div>
           </div>
         </button>
-        <button class="slim-btn camera-btn" id="captureBtn">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path>
-                  <circle cx="12" cy="13" r="3"></circle>
-                  <path d="M17 8h.01"></path>
-                </svg>
-            </button>
+        <!-- Hey Apx voice assistant toggle -->
+        <button class="slim-btn" id="voiceBtn" title="Hey Apx">
+          <div class="heyapx-spinner" id="heyApxSpinner" aria-hidden="true">
+            <div class="heyapx-spinner1"></div>
+          </div>
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4z"></path>
+            <path d="M19 10v2a7 7 0 0 1-7 7 7 7 0 0 1-7-7v-2"></path>
+            <line x1="12" y1="19" x2="12" y2="23"></line>
+            <line x1="8" y1="23" x2="16" y2="23"></line>
+          </svg>
+          <span id="voiceLabel">Hey Apx</span>
+        </button>
+        <button class="slim-btn camera-btn" id="captureBtn" title="Capture screenshot and analyze">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <!-- Minimal surveillance camera icon -->
+            <!-- Camera body -->
+            <rect x="3" y="8" width="10" height="6" rx="1"></rect>
+            <!-- Lens housing angled -->
+            <path d="M13 10l7-3v7l-7-3"></path>
+            <!-- Mount/bracket -->
+            <path d="M6 14l-2 5h5"></path>
+            <!-- Lens detail -->
+            <circle cx="8" cy="11" r="1.5"></circle>
+          </svg>
+        </button>
 
       </div>
       <div class="close-instruction">
@@ -1055,6 +1131,10 @@
     const transcriptionBtn = document.getElementById('transcriptionBtn');
     const meetingBtn = document.getElementById('meetingBtn');
     const actionBtn = document.getElementById('actionBtn');
+    const voiceBtn = document.getElementById('voiceBtn');
+    const chatBtn = document.getElementById('chatBtn');
+    const heyApxSpinner = document.getElementById('heyApxSpinner');
+    const voiceLabel = document.getElementById('voiceLabel');
 
     let isProcessing = false;
     let currentResponse = '';
@@ -1062,6 +1142,78 @@
     let capturedOCRText = null; // Store OCR text for ongoing Q&A
     let webSearchMode = false; // Track if next input should be a web search
     let actionMode = false; // Track if next input should be an action
+    let chatMode = true; // Default to chat mode
+    let voiceMode = false; // Track Hey Apx voice assistant state
+    let voiceManager = null; // Store voice manager init response
+    // Resolve backend API base across browser vs Electron
+    function resolveApiBase() {
+      try {
+        const origin = window.location.origin || '';
+        const isHttp = origin.startsWith('http://') || origin.startsWith('https://');
+        const stored = localStorage.getItem('APX_API_BASE');
+        if (stored) return stored;
+        if (isHttp) return origin;
+        const isElectron = (!!(window.process && window.process.versions && window.process.versions.electron)) ||
+                           (navigator.userAgent || '').includes('Electron');
+        if (isElectron) {
+          // Electron app commonly uses 8888 by default; prefer IPv4 literal to avoid IPv6 ambiguity
+          return 'http://127.0.0.1:8888';
+        }
+        // Default to the dev backend; prefer IPv4 literal
+        return 'http://127.0.0.1:8895';
+      } catch (e) {
+        return 'http://127.0.0.1:8895';
+      }
+    }
+    let API_BASE = resolveApiBase(); // Backend base for voice endpoints
+
+    // Helper: detect Electron once
+    const IS_ELECTRON = (!!(window.process && window.process.versions && window.process.versions.electron)) ||
+                        (navigator.userAgent || '').includes('Electron');
+
+    // Probing candidates in sensible order
+    function candidateBases() {
+      const stored = localStorage.getItem('APX_API_BASE');
+      const list = [];
+      // Prioritize stored working base
+      if (stored) list.push(stored);
+      // Prefer the expected port for the environment
+      if (IS_ELECTRON) {
+        list.push('http://127.0.0.1:8888', 'http://localhost:8888', 'http://127.0.0.1:8895', 'http://localhost:8895');
+      } else {
+        list.push('http://127.0.0.1:8895', 'http://localhost:8895', 'http://127.0.0.1:8888', 'http://localhost:8888');
+      }
+      // De-duplicate while preserving order
+      return Array.from(new Set(list));
+    }
+
+    // Helper: fetch with timeout
+    async function fetchWithTimeout(url, options = {}, ms = 1200) {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), ms);
+      try {
+        const resp = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
+        return resp;
+      } finally {
+        clearTimeout(id);
+      }
+    }
+
+    // Probe /health across candidates; returns first healthy base or null
+    async function probeApiBaseAndHealth() {
+      const candidates = candidateBases();
+      for (const base of candidates) {
+        try {
+          const resp = await fetchWithTimeout(`${base}/health`, { method: 'GET' }, 1500);
+          if (resp && resp.ok) {
+            return base;
+          }
+        } catch (e) {
+          // Continue to next candidate
+        }
+      }
+      return null;
+    }
 
     // Enable/disable send button based on input
     commandInput.addEventListener('input', () => {
@@ -1137,6 +1289,8 @@
       }
       actionMode = false; // Exit action mode if entering web search mode
       updateActionButton();
+      chatMode = !webSearchMode; // Chat is active when no special mode
+      updateChatButton();
     });
     
     // Action button event listener
@@ -1151,7 +1305,24 @@
       }
       webSearchMode = false; // Exit web search mode if entering action mode
       updateWebSearchButton();
+      chatMode = !actionMode; // Chat is active when no special mode
+      updateChatButton();
     });
+
+    // Chat button event listener
+    if (chatBtn) {
+      chatBtn.addEventListener('click', () => {
+        // Enter chat mode; disable other modes
+        chatMode = true;
+        actionMode = false;
+        webSearchMode = false;
+        commandInput.placeholder = 'Ask me anything...';
+        updateActionButton();
+        updateWebSearchButton();
+        updateChatButton();
+        commandInput.focus();
+      });
+    }
 
     // Function to process action request
     async function processAction(command) {
@@ -1189,9 +1360,19 @@
       }
     }
 
+    // Update chat button appearance
+    function updateChatButton() {
+      if (chatMode) {
+        chatBtn.classList.add('active');
+      } else {
+        chatBtn.classList.remove('active');
+      }
+    }
+
     // Initial button state
     updateActionButton();
     updateWebSearchButton();
+    updateChatButton();
 
     // Function to process web search requests
     async function processWebSearch(query) {
@@ -2050,6 +2231,105 @@
     // Meeting Mode button event listener
     meetingBtn.addEventListener('click', toggleMeetingMode);
 
+    // Hey Apx Toggle Function
+    async function toggleVoiceMode() {
+      voiceMode = !voiceMode;
+      if (voiceMode) {
+        try {
+          // If running under Electron, ask main process for its backend URL
+          if (IS_ELECTRON && typeof require === 'function') {
+            try {
+              const { ipcRenderer } = require('electron');
+              const mainBackendUrl = await ipcRenderer.invoke('get-backend-url');
+              if (mainBackendUrl && typeof mainBackendUrl === 'string') {
+                const m = mainBackendUrl.match(/^http:\/\/[^:]+:(\d+)/);
+                if (m && m[1]) {
+                  API_BASE = `http://127.0.0.1:${m[1]}`;
+                } else {
+                  API_BASE = mainBackendUrl;
+                }
+                localStorage.setItem('APX_API_BASE', API_BASE);
+              }
+            } catch (e) {
+              console.warn('Could not query Electron main for backend URL:', e);
+            }
+          }
+
+          // Wait briefly for backend to be ready; probe health across ports and hosts
+          const healthyBase = await probeApiBaseAndHealth();
+          if (healthyBase) {
+            API_BASE = healthyBase;
+            localStorage.setItem('APX_API_BASE', API_BASE);
+          }
+
+          // Helper to attempt activation against a given base URL
+          const attemptActivate = async (base) => {
+            // Always re-init to ensure you hear ready cue on each activation
+            const response = await fetch(`${base}/api/voice/init`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            if (!response.ok) throw new Error('Failed to initialize voice system');
+            voiceManager = await response.json();
+
+            const startResponse = await fetch(`${base}/api/voice/start`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            if (!startResponse.ok) throw new Error('Failed to start voice listening');
+          };
+
+          // First try current API_BASE; if network error, auto-fallback between ports
+          try {
+            await attemptActivate(API_BASE);
+          } catch (primaryError) {
+            console.warn('Primary voice activation failed, attempting fallback...', primaryError);
+            // Prefer IPv4 literal on fallback too
+            const altBase = API_BASE.includes(':8895') ? 'http://127.0.0.1:8888' : 'http://127.0.0.1:8895';
+            await attemptActivate(altBase);
+            API_BASE = altBase;
+            localStorage.setItem('APX_API_BASE', API_BASE);
+          }
+
+          voiceBtn.classList.add('active');
+          if (heyApxSpinner) heyApxSpinner.style.display = 'inline-block';
+          const micIcon = voiceBtn ? voiceBtn.querySelector('svg') : null;
+          if (micIcon) micIcon.style.display = 'none';
+          if (voiceLabel) voiceLabel.style.display = 'none';
+          showResult('🤖 Hey Apx activated! I\'m listening...', 'success');
+        } catch (error) {
+          console.error('Hey Apx activation failed:', error);
+          voiceMode = false;
+          const hint = ` (tip: check API port 8895 vs 8888)`;
+          showResult('❌ Failed to activate Hey Apx: ' + error.message + hint, 'error');
+        }
+      } else {
+        try {
+          const stopResponse = await fetch(`${API_BASE}/api/voice/stop`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          if (!stopResponse.ok) {
+            console.warn('Warning: Failed to properly stop voice system');
+          }
+          voiceBtn.classList.remove('active');
+          if (heyApxSpinner) heyApxSpinner.style.display = 'inline-block';
+          const micIcon = voiceBtn ? voiceBtn.querySelector('svg') : null;
+          if (micIcon) micIcon.style.display = 'none';
+          if (voiceLabel) voiceLabel.style.display = 'none';
+          showResult('🔇 Hey Apx deactivated.', 'success');
+        } catch (error) {
+          console.error('Hey Apx deactivation failed:', error);
+          showResult('⚠️ Hey Apx deactivated with warnings', 'warning');
+        }
+      }
+    }
+
+    // Hey Apx button event listener
+    if (voiceBtn) {
+      voiceBtn.addEventListener('click', toggleVoiceMode);
+    }
+
     // Event listener for Transcription button
     if (transcriptionBtn) {
       transcriptionBtn.addEventListener('click', () => {
@@ -2721,13 +3001,9 @@
     function updateOCRIndicator() {
       const captureBtn = document.getElementById('captureBtn');
       if (capturedOCRText) {
-        captureBtn.style.background = 'linear-gradient(135deg, #4CAF50, #45a049)';
-        captureBtn.title = 'AI analysis available - Click to capture new content or ask questions about current content';
-        captureBtn.innerHTML = '📷✨';
+        captureBtn.title = 'Analysis available — capture again or ask about current content';
       } else {
-        captureBtn.style.background = 'linear-gradient(135deg, #007AFF, #0056CC)';
-        captureBtn.title = 'Capture screenshot and analyze questions with AI';
-        captureBtn.innerHTML = '📷';
+        captureBtn.title = 'Capture screenshot and analyze content';
       }
     }
     

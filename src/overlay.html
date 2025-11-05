@@ -383,6 +383,7 @@
                 console.log('📡 Sending command to backend...');
                 const response = await ipcRenderer.invoke('send-command', command);
                 console.log('📨 Backend response received:', response);
+                console.log('Received response:', response);
                 
                 if (response.success) {
                     console.log('✅ Processing successful response...');

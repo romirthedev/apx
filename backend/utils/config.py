@@ -12,14 +12,14 @@ class Config:
             self.config_file = Path(config_file)
         else:
             # Default config location
-            self.config_file = Path.home() / '.cluely' / 'config.json'
+            self.config_file = Path.home() / '.apex' / 'config.json'
         
         self.config_file.parent.mkdir(exist_ok=True)
         
         # Default configuration
         self.default_config = {
             "app": {
-                "name": "Cluely",
+                "name": "Apex",
                 "version": "1.0.0",
                 "debug": False,
                 "auto_start": True

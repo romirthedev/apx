@@ -84,10 +84,27 @@ class CommandProcessor:
             (r'(?:what\s+time|time|clock)', self._handle_time),
             (r'(?:weather|temperature)', self._handle_weather),
             (r'(?:show|list)\s+(?:running\s+)?processes', self._handle_running_processes),
+            # Enhanced file system patterns (prioritize these for terminal operations)
+            (r'(?:find|show|get|give\s+me)\s+(?:the\s+)?(?:latest|recent|newest)\s+(?:png|jpg|jpeg|pdf|txt|doc|docx)\s+files?(?:\s+(?:on\s+(?:my\s+)?computer|in\s+(?:the\s+)?(?:past|last)\s+(\d+)\s+(days?|weeks?|months?)))?', self._handle_recent_files_by_type),
+            (r'(?:find|show|get)\s+(?:files?\s+)?(?:installed|created|modified|added)(?:\s+in\s+(?:the\s+)?(?:past|last)\s+(\d+)\s+(days?|weeks?|months?))?', self._handle_recent_files),
             (r'(?:what|which)\s+(?:app|application|program)s?\s+(?:take|use|consume)s?\s+(?:the\s+)?most\s+(?:space|disk|storage)', self._handle_largest_apps),
+            (r'(?:find|show|get)\s+(?:the\s+)?largest\s+(?:app|application)(?:s?)\s*(?:on\s+(?:my\s+)?computer)?', self._handle_largest_apps),
             (r'(?:find|show|get)\s+(?:the\s+)?largest\s+file(?:s?)\s*(?:on\s+(?:my\s+)?computer|in\s+system)?', self._handle_find_largest_file),
             (r'(?:find|show|get)\s+(?:the\s+)?smallest\s+file(?:s?)\s*(?:on\s+(?:my\s+)?computer|in\s+system)?', self._handle_find_smallest_file),
             (r'(?:show|analyze|check)\s+(?:disk\s+)?(?:usage|space)', self._handle_disk_usage),
+            (r'(?:what\'?s\s+in|show|list|browse)\s+(?:my\s+)?(?:downloads?|desktop|documents?)(?:\s+folder)?', self._handle_folder_contents),
+            
+            # Enhanced file system queries
+            (r'(?:analyze|check|show|what\'?s\s+in)\s+(?:my\s+)?downloads(?:\s+folder)?', self._handle_downloads_analysis),
+            (r'(?:analyze|check|show|what\'?s\s+on)\s+(?:my\s+)?desktop(?:\s+folder)?', self._handle_desktop_analysis),
+            (r'(?:analyze|check|show|what\'?s\s+in)\s+(?:my\s+)?documents(?:\s+folder)?', self._handle_documents_analysis),
+            (r'(?:what\s+files?\s+(?:are\s+)?in|list\s+files?\s+in|show\s+(?:me\s+)?(?:files?\s+in|contents?\s+of))\s+(.+)', self._handle_directory_analysis),
+            (r'(?:find|show|get)\s+(?:the\s+)?largest\s+files?\s+in\s+(.+)', self._handle_largest_files_in_directory),
+            (r'(?:find|show|get)\s+(?:the\s+)?smallest\s+files?\s+in\s+(.+)', self._handle_smallest_files_in_directory),
+            (r'(?:analyze|check|show)\s+(?:directory|folder)\s+(.+)', self._handle_directory_analysis),
+            (r'(?:clean|clear|delete)\s+(?:temp|temporary)\s+files', self._handle_clean_temp_files),
+            (r'(?:what\s+(?:are\s+)?(?:the\s+)?(?:biggest|largest)\s+files?\s+in|find\s+big\s+files?\s+in)\s+(.+)', self._handle_largest_files_in_directory),
+            (r'(?:what\s+(?:are\s+)?(?:the\s+)?(?:smallest|tiniest)\s+files?\s+in|find\s+small\s+files?\s+in)\s+(.+)', self._handle_smallest_files_in_directory),
             
             # macOS System Control
             (r'(?:check|show)\s+(?:system\s+)?permissions', self._handle_check_permissions),
@@ -271,6 +288,72 @@ class CommandProcessor:
                     'metadata': {'method': 'direct_response'}
                 }
             
+            # Check if command should use AI decision making first
+            if self.gemini_ai and self.gemini_ai.should_use_ai(command):
+                logger.info(f"[AI_ROUTING] Command routed to AI for decision making: {command}")
+                # Skip pattern handlers and go directly to AI processing
+                pass
+            else:
+                # Check command patterns for direct handler execution (only for simple, non-AI commands)
+                ai_bypass_patterns = [
+                    # File system patterns that should use AI decision making
+                    r'(?:find|show|get)\s+(?:the\s+)?largest\s+file(?:s?)',
+                    r'(?:find|show|get)\s+(?:the\s+)?smallest\s+file(?:s?)',
+                    r'(?:find|show|get|give\s+me)\s+(?:the\s+)?(?:latest|recent|newest)\s+.*files?',
+                    r'(?:what|which)\s+(?:app|application|program)s?\s+(?:take|use|consume)s?\s+(?:the\s+)?most\s+(?:space|disk|storage)',
+                    r'(?:find|show|get)\s+(?:the\s+)?largest\s+(?:app|application)',
+                    # Terminal command patterns that should use AI
+                    r'.*terminal.*command.*',
+                    r'.*run.*command.*',
+                    r'.*execute.*',
+                ]
+                
+                # Check if this command should bypass pattern handlers for AI processing
+                should_bypass_patterns = False
+                for bypass_pattern in ai_bypass_patterns:
+                    if re.search(bypass_pattern, command_lower):
+                        should_bypass_patterns = True
+                        logger.info(f"[AI_BYPASS] Command matches AI bypass pattern, routing to AI: {command}")
+                        break
+                
+                if not should_bypass_patterns:
+                    # Apply pattern handlers for simple commands
+                    for pattern_info in self.command_patterns:
+                        pattern = pattern_info[0]  # First element is the pattern
+                        handler = pattern_info[1]  # Second element is the handler
+                        
+                        match = re.search(pattern, command_lower)
+                        if match:
+                            try:
+                                logger.info(f"[PATTERN] Matched pattern '{pattern}' for command: {command}")
+                                
+                                # Call the handler method with matched groups
+                                if hasattr(self, handler.__name__):
+                                    # Create context with matched groups
+                                    match_context = []
+                                    for i, group in enumerate(match.groups()):
+                                        match_context.append({'match': group, 'group_index': i})
+                                    
+                                    # Call handler with the matched groups as arguments
+                                    if match.groups():
+                                        # If there are captured groups, pass them as arguments
+                                        result = handler(*match.groups(), context=match_context)
+                                    else:
+                                        # If no captured groups, just pass context
+                                        result = handler(context=match_context)
+                                    
+                                    return {
+                                        'success': True,
+                                        'result': result,
+                                        'metadata': {'method': 'pattern_handler', 'handler': handler.__name__}
+                                    }
+                                else:
+                                    logger.warning(f"Handler method '{handler.__name__}' not found")
+                            except Exception as e:
+                                logger.error(f"Pattern handler '{handler.__name__}' failed: {str(e)}")
+                                # Continue to next pattern or fall back to AI
+                                continue
+            
             # Check for web browsing commands first (bypass AI when rate limited)
             if any(keyword in command.lower() for keyword in ['open', 'browse', 'visit', 'go to']) and any(site in command.lower() for site in ['website', 'site', 'github', 'openai', 'repo', 'repository', 'docs', 'documentation', 'python', 'react', 'node', 'javascript', 'typescript', 'vue', 'angular', 'docker', 'kubernetes', 'aws', 'azure', 'gcp', 'stackoverflow', 'reddit', 'twitter', 'linkedin', 'youtube', 'netflix', 'spotify', 'discord', 'slack', 'zoom', 'notion', 'figma', 'trello', 'asana', 'dropbox', 'gmail', 'outlook', 'yahoo', 'bing', 'duckduckgo', 'wikipedia', 'medium', 'dev.to', 'hashnode', 'producthunt', 'hackernews', 'techcrunch', 'the verge', 'ars technica', 'wired']):
                 try:
@@ -389,8 +472,6 @@ class CommandProcessor:
                                 response_text = ai_response['response']
                                 # Try to extract just the response part if it's JSON
                                 try:
-                                    import json
-                                    import re
                                     json_match = re.search(r'\{[^}]*"response"[^}]*:.*?"([^"]+)".*?\}', response_text, re.DOTALL)
                                     if json_match:
                                         response_text = json_match.group(1)
@@ -408,8 +489,6 @@ class CommandProcessor:
                         response_text = ai_response['response']
                         # Try to extract just the response part if it's JSON
                         try:
-                            import json
-                            import re
                             json_match = re.search(r'\{[^}]*"response"[^}]*:.*?"([^"]+)".*?\}', response_text, re.DOTALL)
                             if json_match:
                                 response_text = json_match.group(1)
@@ -759,99 +838,159 @@ class CommandProcessor:
         return self.plugins['system_info'].get_running_processes()
     
     def _handle_largest_apps(self, context: List[Dict] = None) -> str:
-        """Handle largest applications requests."""
-        return self.plugins['system_info'].get_largest_apps()
+        """Handle largest applications requests with fallback mechanisms."""
+        try:
+            # First try the system_info plugin
+            result = self.plugins['system_info'].get_largest_apps()
+            
+            # Check if the result indicates an error or no apps found
+            if "❌" in result or "No applications found" in result:
+                # Fallback to direct shell command approach
+                return self._handle_largest_apps_fallback()
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in _handle_largest_apps: {str(e)}")
+            # Fallback to direct shell command approach
+            return self._handle_largest_apps_fallback()
     
-    def _handle_find_largest_file(self, context: List[Dict] = None) -> str:
-        """Handle finding the largest file on the system."""
+    def _handle_largest_apps_fallback(self) -> str:
+        """Fallback method using direct shell commands to find largest apps."""
         try:
             import subprocess
             import os
             
-            # Start with more targeted search to avoid timeouts
-            # First try user directories which are more likely to have large files
+            # Use du command to get app sizes on macOS
+            if os.path.exists("/Applications"):
+                try:
+                    # Get sizes of all .app bundles in /Applications
+                    cmd = "du -sh /Applications/*.app 2>/dev/null | sort -rh | head -10"
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        lines = result.stdout.strip().split('\n')
+                        
+                        output = ["🔍 LARGEST APPLICATIONS (Shell Command Fallback)", "=" * 50]
+                        output.append(f"\n📱 Top {len(lines)} largest applications:")
+                        output.append(f"{'Size':<12} {'Application'}")
+                        output.append("-" * 50)
+                        
+                        for line in lines:
+                            if line.strip():
+                                parts = line.split('\t', 1)
+                                if len(parts) == 2:
+                                    size, path = parts
+                                    app_name = os.path.basename(path).replace('.app', '')
+                                    output.append(f"{size:<12} {app_name}")
+                        
+                        return "\n".join(output)
+                    
+                except subprocess.TimeoutExpired:
+                    return "⏱️ Command timed out. Try: 'du -sh /Applications/*.app | sort -rh | head -5' in terminal"
+                except Exception as e:
+                    logger.error(f"Shell command fallback error: {str(e)}")
+            
+            # If all else fails, provide the direct command
+            return """🔍 LARGEST APPLICATIONS
+            
+To find the largest apps on your system, you can run this command in terminal:
+`du -sh /Applications/*.app | sort -rh | head -10`
+
+This will show the disk usage of all applications sorted by size."""
+            
+        except Exception as e:
+            logger.error(f"Fallback method error: {str(e)}")
+            return f"❌ Unable to analyze app sizes. Error: {str(e)}"
+    
+    def _handle_find_largest_file(self, context: List[Dict] = None) -> str:
+        """Handle finding the largest file on the system with optimized search."""
+        try:
+            import subprocess
+            import os
+            
             user_home = os.path.expanduser("~")
             
-            # Search priority areas first
-            search_areas = [
+            def format_size(bytes):
+                for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+                    if bytes < 1024.0:
+                        return f"{bytes:.1f} {unit}"
+                    bytes /= 1024.0
+                return f"{bytes:.1f} PB"
+            
+            # Strategy 1: Quick check of common large file locations with very short timeout
+            quick_search_areas = [
                 f"{user_home}/Downloads",
                 f"{user_home}/Desktop", 
                 f"{user_home}/Documents",
                 f"{user_home}/Movies",
-                f"{user_home}/Pictures",
-                f"{user_home}",  # Entire home directory
-                "/Applications",  # macOS Applications
-                "/"  # Full system (last resort)
+                f"{user_home}/Pictures"
             ]
             
             largest_file = None
             largest_size = 0
             
-            for search_path in search_areas:
+            for search_path in quick_search_areas:
                 if not os.path.exists(search_path):
                     continue
                     
                 try:
-                    # Use a shorter timeout for each area
-                    cmd = f"find '{search_path}' -type f -exec ls -la {{}} + 2>/dev/null | awk '{{if($5 > max) {{max=$5; file=$9}} }} END {{print max, file}}'"
-                    
-                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                    # Use ls -laSr to sort by size, then take the largest (last line)
+                    cmd = f"ls -laSr '{search_path}'/* 2>/dev/null | tail -1"
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3)
                     
                     if result.returncode == 0 and result.stdout.strip():
-                        output = result.stdout.strip()
-                        if output and output != " ":
-                            parts = output.split(' ', 1)
-                            if len(parts) == 2 and parts[0].isdigit():
-                                size_bytes = int(parts[0])
-                                file_path = parts[1]
-                                
-                                if size_bytes > largest_size:
-                                    largest_size = size_bytes
-                                    largest_file = file_path
+                        line = result.stdout.strip()
+                        parts = line.split()
+                        if len(parts) >= 9 and parts[4].isdigit():
+                            size_bytes = int(parts[4])
+                            file_path = ' '.join(parts[8:])
+                            
+                            if size_bytes > largest_size:
+                                largest_size = size_bytes
+                                largest_file = file_path
                 
-                except (subprocess.TimeoutExpired, Exception) as e:
-                    # Continue to next search area if this one fails
+                except (subprocess.TimeoutExpired, Exception):
                     continue
             
+            # Strategy 2: If quick search found something, return it
             if largest_file and largest_size > 0:
-                # Convert bytes to human readable format
-                def format_size(bytes):
-                    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-                        if bytes < 1024.0:
-                            return f"{bytes:.1f} {unit}"
-                        bytes /= 1024.0
-                    return f"{bytes:.1f} PB"
-                
                 formatted_size = format_size(largest_size)
-                
-                return f"""🔍 **Largest File Found**
+                return f"""🔍 **Largest File Found (Quick Search)**
 
 **File:** {largest_file}
 **Size:** {formatted_size} ({largest_size:,} bytes)
 
-This is the largest file found during the search of your accessible directories."""
+Found in common directories. For a more comprehensive search, this may take longer."""
             
-            # If no file found, try a quick alternative approach
+            # Strategy 3: Fallback to du command with strict timeout on home directory only
             try:
-                # Use du command for a faster approach
-                cmd = f"du -a '{user_home}' 2>/dev/null | sort -rn | head -1"
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+                # Use du to find largest files in home directory only
+                cmd = f"du -a '{user_home}' 2>/dev/null | sort -rn | head -5"
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
                 
                 if result.returncode == 0 and result.stdout.strip():
-                    output = result.stdout.strip()
-                    parts = output.split('\t', 1) if '\t' in output else output.split(' ', 1)
-                    if len(parts) == 2:
-                        size_kb = int(parts[0])
-                        file_path = parts[1]
-                        size_bytes = size_kb * 1024
-                        
-                        def format_size(bytes):
-                            for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-                                if bytes < 1024.0:
-                                    return f"{bytes:.1f} {unit}"
-                                bytes /= 1024.0
-                            return f"{bytes:.1f} PB"
-                        
+                    lines = result.stdout.strip().split('\n')
+                    results = []
+                    
+                    for line in lines:
+                        parts = line.split('\t', 1) if '\t' in line else line.split(' ', 1)
+                        if len(parts) == 2:
+                            try:
+                                size_kb = int(parts[0])
+                                file_path = parts[1]
+                                size_bytes = size_kb * 1024
+                                
+                                # Check if it's actually a file (not directory)
+                                if os.path.isfile(file_path):
+                                    results.append((size_bytes, file_path))
+                            except (ValueError, OSError):
+                                continue
+                    
+                    if results:
+                        # Sort by size and get the largest
+                        results.sort(reverse=True)
+                        size_bytes, file_path = results[0]
                         formatted_size = format_size(size_bytes)
                         
                         return f"""🔍 **Largest File Found**
@@ -860,10 +999,41 @@ This is the largest file found during the search of your accessible directories.
 **Size:** {formatted_size} ({size_bytes:,} bytes)
 
 This is the largest file found in your home directory."""
-            except Exception:
+            
+            except (subprocess.TimeoutExpired, Exception):
                 pass
             
-            return "❌ Could not find large files. The search may have been restricted by system permissions or no accessible large files were found."
+            # Strategy 4: Last resort - check Applications directory for large app bundles
+            try:
+                if os.path.exists("/Applications"):
+                    cmd = "du -sh /Applications/*.app 2>/dev/null | sort -rh | head -1"
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        line = result.stdout.strip()
+                        parts = line.split('\t', 1) if '\t' in line else line.split(' ', 1)
+                        if len(parts) == 2:
+                            size_str = parts[0]
+                            app_path = parts[1]
+                            
+                            return f"""🔍 **Largest Application Found**
+
+**Application:** {app_path}
+**Size:** {size_str}
+
+Note: This is the largest application bundle. Individual files may be larger but harder to locate quickly."""
+            
+            except (subprocess.TimeoutExpired, Exception):
+                pass
+            
+            return """❌ **Unable to find large files quickly**
+
+The search was optimized to avoid timeouts. Large files may exist but require more time to locate. 
+
+**Suggestions:**
+- Check your Downloads folder manually for large files
+- Look in Movies/Pictures folders for media files
+- Use Finder's search with size filters for more detailed results"""
                 
         except Exception as e:
             return f"❌ Failed to search for largest file: {str(e)}"
@@ -979,7 +1149,7 @@ This is the smallest file found in your home directory."""
         """Handle help requests."""
         ai_status = "🤖 AI-Powered" if self.gemini_ai else "🔧 Rule-Based"
         
-        return f"""I'm Cluely, your {ai_status} desktop assistant! I can help you with:
+        return f"""I'm Apex, your {ai_status} desktop assistant! I can help you with:
         
 📁 File Operations:
   - Open, create, delete, copy, move files and folders
@@ -1833,5 +2003,121 @@ Just tell me what you want to do in natural language!"""
         except Exception as e:
             logger.error(f"Error getting operating system info: {e}")
             return f"❌ Error getting operating system information: {str(e)}"
+    
+    # Enhanced file system handlers
+    def _handle_downloads_analysis(self, context: List[Dict] = None) -> str:
+        """Handle downloads folder analysis requests."""
+        return self.plugins['file_manager'].get_downloads_analysis()
+    
+    def _handle_desktop_analysis(self, context: List[Dict] = None) -> str:
+        """Handle desktop folder analysis requests."""
+        return self.plugins['file_manager'].get_desktop_analysis()
+    
+    def _handle_documents_analysis(self, context: List[Dict] = None) -> str:
+        """Handle documents folder analysis requests."""
+        return self.plugins['file_manager'].get_documents_analysis()
+    
+    def _handle_largest_files_in_directory(self, directory: str = None, context: List[Dict] = None) -> str:
+        """Handle finding largest files in a specific directory."""
+        if directory:
+            # Expand common shortcuts
+            if directory.lower() in ['downloads', 'download']:
+                directory = str(Path.home() / "Downloads")
+            elif directory.lower() in ['documents', 'docs']:
+                directory = str(Path.home() / "Documents")
+            elif directory.lower() in ['desktop']:
+                directory = str(Path.home() / "Desktop")
+            elif directory.startswith('~'):
+                directory = os.path.expanduser(directory)
+            
+            return self.plugins['file_manager'].find_largest_files(directory)
+        return "Please specify a directory to search in."
+    
+    def _handle_smallest_files_in_directory(self, directory: str = None, context: List[Dict] = None) -> str:
+        """Handle finding smallest files in a specific directory."""
+        if directory:
+            # Expand common shortcuts
+            if directory.lower() in ['downloads', 'download']:
+                directory = str(Path.home() / "Downloads")
+            elif directory.lower() in ['documents', 'docs']:
+                directory = str(Path.home() / "Documents")
+            elif directory.lower() in ['desktop']:
+                directory = str(Path.home() / "Desktop")
+            elif directory.startswith('~'):
+                directory = os.path.expanduser(directory)
+            
+            return self.plugins['file_manager'].find_smallest_files(directory)
+        return "Please specify a directory to search in."
+    
+    def _handle_directory_analysis(self, directory: str = None, context: List[Dict] = None) -> str:
+        """Handle directory analysis requests."""
+        if directory:
+            # Expand common shortcuts
+            if directory.lower() in ['downloads', 'download']:
+                directory = str(Path.home() / "Downloads")
+            elif directory.lower() in ['documents', 'docs']:
+                directory = str(Path.home() / "Documents")
+            elif directory.lower() in ['desktop']:
+                directory = str(Path.home() / "Desktop")
+            elif directory.startswith('~'):
+                directory = os.path.expanduser(directory)
+            
+            return self.plugins['file_manager'].get_directory_analysis(directory)
+        return "Please specify a directory to analyze."
+    
+    def _handle_clean_temp_files(self, context: List[Dict] = None) -> str:
+        """Handle cleaning temporary files."""
+        return self.plugins['file_manager'].clean_temp_files(confirm=False)
+    
+    def _handle_recent_files_by_type(self, file_type: str = None, context: List[Dict] = None) -> str:
+        """Handle finding recent files by type (e.g., PNG files in last 7 days)."""
+        if not file_type:
+            return "Please specify a file type to search for."
+        
+        # Extract time period if mentioned
+        days = 7  # default
+        if context and len(context) > 0:
+            command_text = context[0].get('original_command', '').lower()
+            if 'past' in command_text or 'last' in command_text:
+                import re
+                day_match = re.search(r'(\d+)\s*days?', command_text)
+                if day_match:
+                    days = int(day_match.group(1))
+        
+        return self.plugins['file_manager'].find_recent_files_by_type(file_type, days)
+    
+    def _handle_recent_files(self, context: List[Dict] = None) -> str:
+        """Handle finding recent files by modification/creation date."""
+        days = 7  # default
+        if context and len(context) > 0:
+            command_text = context[0].get('original_command', '').lower()
+            import re
+            day_match = re.search(r'(\d+)\s*days?', command_text)
+            if day_match:
+                days = int(day_match.group(1))
+        
+        return self.plugins['file_manager'].find_recent_files(days)
+    
+    def _handle_folder_contents(self, folder_name: str = None, context: List[Dict] = None) -> str:
+        """Handle showing contents of specific folders like Downloads, Desktop, Documents."""
+        if not folder_name:
+            return "Please specify a folder to analyze."
+        
+        # Map common folder names to actual paths
+        folder_mapping = {
+            'downloads': str(Path.home() / "Downloads"),
+            'desktop': str(Path.home() / "Desktop"), 
+            'documents': str(Path.home() / "Documents"),
+            'pictures': str(Path.home() / "Pictures"),
+            'movies': str(Path.home() / "Movies"),
+            'music': str(Path.home() / "Music")
+        }
+        
+        folder_lower = folder_name.lower().strip()
+        if folder_lower in folder_mapping:
+            return self.plugins['file_manager'].get_directory_analysis(folder_mapping[folder_lower])
+        else:
+            # Try as direct path
+            return self.plugins['file_manager'].get_directory_analysis(folder_name)
     
     

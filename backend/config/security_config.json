@@ -96,7 +96,7 @@
       "enabled": true,
       "allowed_domains": [],
       "blocked_domains": ["banking", "financial", "password"],
-      "user_agent": "Cluely AI Assistant/1.0"
+      "user_agent": "Apex AI Assistant/1.0"
     },
     "system_info": {
       "enabled": true,
