@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, nativeImage } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -8,8 +8,24 @@ const axios = require('axios');
 const store = new Store();
 let mainWindow;
 let overlayWindow;
+let appIcon = null;
+let allowOverlayHide = false; // Allow manual hide when toggling via shortcut
+const APP_ICON_URL = 'https://framerusercontent.com/images/NqlkhOHNTp2xhwgwT22pu4pcPk.png?scale-down-to=512&width=1024&height=788';
 const BACKEND_PORT = 8888;
 const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
+
+// Ensure app naming is consistent across platforms
+// Note: macOS Dock hover label is determined by bundle name when packaged.
+// We still set the name, about panel options, and window titles for consistency in dev.
+try {
+  app.setName('Apx');
+} catch (_) {}
+if (process.platform === 'win32') {
+  try { app.setAppUserModelId('APX'); } catch (_) {}
+}
+if (process.platform === 'darwin') {
+  try { app.setAboutPanelOptions({ applicationName: 'Apx' }); } catch (_) {}
+}
 
 // Utility functions for safe window operations
 function safeOverlayOperation(operation) {
@@ -61,11 +77,15 @@ function createMainWindow() {
     width: 400,
     height: 300,
     show: false,
+    icon: appIcon || undefined,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
     }
   });
+
+  // Set explicit window title to ensure taskbar/hover shows "Apx" where applicable
+  try { mainWindow.setTitle('Apx'); } catch (_) {}
 
   mainWindow.loadFile(path.join(__dirname, 'main.html'));
   
@@ -101,9 +121,15 @@ function createOverlayWindow() {
     transparent: true,
     show: false,
     focusable: true,
+    fullscreenable: false,
+    minimizable: false,
+    maximizable: false,
+    closable: false,
+    acceptFirstMouse: true,
     hasShadow: false,
     type: 'panel', // Makes it a floating panel
     visualEffectState: 'inactive', // Disable vibrancy to prevent edge aliasing
+    icon: appIcon || undefined,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -116,8 +142,19 @@ function createOverlayWindow() {
     }
   });
 
+  try { overlayWindow.setTitle('Apx Overlay'); } catch (_) {}
+
   // Allow mouse events to pass through by default
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+
+  // Ensure overlay stays above fullscreen/kiosk windows
+  try {
+    overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+    overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    overlayWindow.setFullScreenable(false);
+  } catch (e) {
+    console.warn('Failed to apply full-screen overlay safeguards:', e);
+  }
 
   overlayWindow.loadFile(path.join(__dirname, 'overlay-unified.html'));
 
@@ -149,7 +186,45 @@ function createOverlayWindow() {
   overlayWindow.on('blur', () => {
     console.log('Overlay blur event - ensuring overlay stays visible and on top');
     overlayWindow.setAlwaysOnTop(true, 'screen-saver');
-    overlayWindow.setVisibleOnAllWorkspaces(true);
+    overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  });
+
+  // Prevent hide/minimize/close from removing overlay; auto-restore
+  overlayWindow.on('hide', () => {
+    if (allowOverlayHide) {
+      console.log('Overlay hide allowed by user shortcut');
+      // Reset flag after accepted hide
+      allowOverlayHide = false;
+      return;
+    }
+    console.log('Overlay hide event - restoring overlay');
+    try {
+      overlayWindow.showInactive();
+      overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+      overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    } catch (e) {
+      console.warn('Failed to restore overlay after hide:', e);
+    }
+  });
+
+  overlayWindow.on('minimize', () => {
+    console.log('Overlay minimize event - restoring overlay');
+    try {
+      overlayWindow.restore();
+      overlayWindow.showInactive();
+      overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+      overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    } catch (e) {
+      console.warn('Failed to restore overlay after minimize:', e);
+    }
+  });
+
+  overlayWindow.on('close', (e) => {
+    console.log('Overlay close attempted - preventing and hiding instead');
+    e.preventDefault();
+    try {
+      overlayWindow.hide();
+    } catch (_) {}
   });
 
   if (process.argv.includes('--dev')) {
@@ -354,13 +429,19 @@ function registerGlobalShortcuts() {
   globalShortcut.register(shortcut, () => {
     safeOverlayOperation((overlay) => {
       if (overlay.isVisible()) {
+        // Allow manual hide
+        allowOverlayHide = true;
         overlay.hide();
+        // Return to passthrough while hidden
+        try { overlay.setIgnoreMouseEvents(true, { forward: true }); } catch (_) {}
+        // Safety reset in case 'hide' event doesn't fire
+        setTimeout(() => { allowOverlayHide = false; }, 1500);
       } else {
         // Ensure the overlay is always on top and focused when shown
         overlay.setAlwaysOnTop(true, 'screen-saver');
-        overlay.setVisibleOnAllWorkspaces(true);
-        overlay.show();
-        overlay.focus();
+        overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+        try { overlay.show(); } catch (_) { overlay.showInactive(); }
+        try { overlay.focus(); } catch (_) { /* focus may be blocked by lockdown */ }
         overlay.webContents.send('focus-input');
         // Re-enable mouse events when shown for interaction
         overlay.setIgnoreMouseEvents(false);
@@ -392,6 +473,39 @@ function registerGlobalShortcuts() {
   });
   
   console.log(`Global shortcuts registered: ${shortcut}, ${refreshShortcut}`);
+
+  // Register a global shortcut for screenshot capture (works without overlay focus)
+  const captureShortcut = process.platform === 'darwin' ? 'Cmd+Shift+C' : 'Ctrl+Shift+C';
+  globalShortcut.register(captureShortcut, async () => {
+    console.log('📸 Global screenshot capture triggered');
+    try {
+      const response = await axios.post(`${BACKEND_URL}/capture_screenshot`, {}, {
+        timeout: 30000,
+        family: 4
+      });
+      const data = response.data || {};
+      safeOverlayOperation((overlay) => {
+        overlay.setAlwaysOnTop(true, 'screen-saver');
+        overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+        try { overlay.showInactive(); } catch (_) { overlay.show(); }
+        overlay.webContents.send('overlay-screenshot-result', {
+          success: !!data.success,
+          text: data.text || '',
+          error: data.error || null
+        });
+      });
+    } catch (error) {
+      console.error('Error during global screenshot capture:', error);
+      safeOverlayOperation((overlay) => {
+        overlay.webContents.send('overlay-screenshot-result', {
+          success: false,
+          text: '',
+          error: error.message
+        });
+      });
+    }
+  });
+  console.log(`Screenshot capture shortcut registered: ${captureShortcut}`);
 }
 
 function resolvePythonExecutable() {
@@ -505,9 +619,44 @@ async function startBackend() {
   }, 500);
 }
 
+async function loadAppIcon() {
+  try {
+    const response = await axios.get(APP_ICON_URL, { responseType: 'arraybuffer' });
+    const buffer = Buffer.from(response.data);
+    const image = nativeImage.createFromBuffer(buffer);
+    if (image && !image.isEmpty()) {
+      // Normalize to a centered square to avoid stretching in Dock/taskbar
+      const { width, height } = image.getSize();
+      let squareImage = image;
+      if (width !== height) {
+        const side = Math.min(width, height);
+        const x = Math.max(0, Math.floor((width - side) / 2));
+        const y = Math.max(0, Math.floor((height - side) / 2));
+        squareImage = image.crop({ x, y, width: side, height: side });
+      }
+      // Resize to a standard icon size for consistency
+      appIcon = squareImage.resize({ width: 512, quality: 'best' });
+      if (process.platform === 'darwin' && app.dock) {
+        try {
+          app.dock.setIcon(appIcon);
+          console.log('✅ Dock icon set from remote URL');
+        } catch (e) {
+          console.warn('⚠️ Failed to set Dock icon:', e.message);
+        }
+      }
+    } else {
+      console.warn('⚠️ Loaded app icon is empty or invalid');
+    }
+  } catch (error) {
+    console.warn('⚠️ Failed to load app icon from URL:', error.message);
+  }
+}
+
 app.whenReady().then(async () => {
   console.log('App is ready, initializing...');
   try {
+    // Load remote app icon before creating windows so they inherit it
+    await loadAppIcon();
     console.log('Creating main window...');
     createMainWindow();
     console.log('Creating overlay window...');
@@ -565,15 +714,21 @@ app.on('will-quit', () => {
 });
 
 // IPC handlers
-ipcMain.handle('send-command', async (event, command) => {
+ipcMain.handle('send-command', async (event, payload) => {
+  const command = (typeof payload === 'string') ? payload : (payload && payload.command);
+  const preferences = (payload && typeof payload === 'object') ? (payload.preferences || null) : null;
   console.log('Received command:', command);
+  if (preferences) {
+    console.log('Received preferences:', preferences);
+  }
   
   try {
     console.log(`Sending to backend at ${BACKEND_URL}/command`);
     
     const response = await axios.post(`${BACKEND_URL}/command`, {
       command: command,
-      context: store.get('context', [])
+      context: store.get('context', []),
+      preferences: preferences || undefined
     }, {
       timeout: 30000, // 30 second timeout
       family: 4 // Force IPv4
@@ -621,6 +776,36 @@ ipcMain.handle('send-command', async (event, command) => {
       error: errorMessage,
       result: suggestion
     };
+  }
+});
+
+// Voice control: initialize voice system via backend
+ipcMain.handle('voice-init', async () => {
+  try {
+    const url = `${BACKEND_URL}/api/voice/init`;
+    const response = await axios.post(url, {}, { timeout: 30000, family: 4 });
+    return response.data;
+  } catch (error) {
+    let msg = 'Failed to initialize voice system';
+    if (error.code === 'ECONNREFUSED') msg = 'Backend service is not running';
+    else if (error.code === 'ETIMEDOUT') msg = 'Backend service timed out during voice init';
+    else if (error.response) msg = `Backend error: ${error.response.status} ${error.response.statusText}`;
+    return { success: false, error: msg };
+  }
+});
+
+// Voice control: start listening via backend
+ipcMain.handle('voice-start', async () => {
+  try {
+    const url = `${BACKEND_URL}/api/voice/start`;
+    const response = await axios.post(url, {}, { timeout: 30000, family: 4 });
+    return response.data;
+  } catch (error) {
+    let msg = 'Failed to start voice listening';
+    if (error.code === 'ECONNREFUSED') msg = 'Backend service is not running';
+    else if (error.code === 'ETIMEDOUT') msg = 'Backend service timed out during voice start';
+    else if (error.response) msg = `Backend error: ${error.response.status} ${error.response.statusText}`;
+    return { success: false, error: msg };
   }
 });
 
@@ -698,6 +883,28 @@ ipcMain.handle('get-backend-url', () => {
   } catch (e) {
     console.error('Error retrieving BACKEND_URL:', e);
     return null;
+  }
+});
+
+// Ensure backend is running and healthy; start if needed and wait briefly
+ipcMain.handle('ensure-backend', async () => {
+  try {
+    await startBackend();
+    // Poll health up to ~10 seconds
+    let attempts = 0;
+    const maxAttempts = 20;
+    while (attempts < maxAttempts) {
+      attempts += 1;
+      const healthy = await isBackendHealthy();
+      if (healthy) {
+        return { success: true, url: BACKEND_URL };
+      }
+      await new Promise(res => setTimeout(res, 500));
+    }
+    return { success: false, error: 'Backend not healthy after retries' };
+  } catch (e) {
+    console.error('ensure-backend error:', e);
+    return { success: false, error: e?.message || 'Unknown error' };
   }
 });
 
